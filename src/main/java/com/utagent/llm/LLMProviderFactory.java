@@ -4,6 +4,7 @@ import com.utagent.llm.provider.ClaudeProvider;
 import com.utagent.llm.provider.DeepSeekProvider;
 import com.utagent.llm.provider.OllamaProvider;
 import com.utagent.llm.provider.OpenAIProvider;
+import com.utagent.util.SensitiveDataMasker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,14 +42,21 @@ public final class LLMProviderFactory {
     }
 
     public static LLMProvider create(LLMProviderType type, String apiKey, String baseUrl, String model, String caCertPath) {
-        logger.debug("Creating LLM provider: {} with baseUrl={}, model={}, caCertPath={}", type, baseUrl, model, caCertPath);
-        
-        return switch (type) {
+        logger.debug("Creating LLM provider: {} with baseUrl={}, model={}, caCertPath={}",
+            type,
+            SensitiveDataMasker.maskForLogging(baseUrl),
+            model,
+            caCertPath != null ? "configured" : "not configured");
+
+        LLMProvider provider = switch (type) {
             case OPENAI -> new OpenAIProvider(apiKey, baseUrl, model, caCertPath);
             case CLAUDE -> new ClaudeProvider(apiKey, baseUrl, model, caCertPath);
             case OLLAMA -> new OllamaProvider(baseUrl, model, caCertPath);
             case DEEPSEEK -> new DeepSeekProvider(apiKey, baseUrl, model, caCertPath);
         };
+
+        // 默认启用缓存
+        return new CachedLLMProvider(provider);
     }
     
     public static LLMProvider create(LLMConfig config) {

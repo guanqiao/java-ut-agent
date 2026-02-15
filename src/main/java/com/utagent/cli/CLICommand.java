@@ -14,9 +14,11 @@ import com.utagent.model.ClassInfo;
 import com.utagent.model.CoverageReport;
 import com.utagent.optimizer.IterativeOptimizer;
 import com.utagent.optimizer.OptimizationResult;
+import com.utagent.optimizer.TestOptimizer;
 import com.utagent.parser.FrameworkDetector;
 import com.utagent.parser.FrameworkType;
 import com.utagent.parser.JavaCodeParser;
+import com.utagent.util.SensitiveDataMasker;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -157,11 +159,12 @@ public class CLICommand implements Callable<Integer> {
 
     private int initializeConfig() {
         File projectRoot = source != null ? source : new File(".");
-        
+
         try {
             ConfigLoader.createDefaultConfig(projectRoot);
-            System.out.println("✅ Created default configuration file: " + 
+            System.out.println("✅ Created default configuration file: " +
                 new File(projectRoot, ".java-ut-agent.yaml").getAbsolutePath());
+            System.out.println("⚠️  Please edit the configuration file and add your API key.");
             return 0;
         } catch (IOException e) {
             System.err.println("❌ Failed to create configuration file: " + e.getMessage());
@@ -213,7 +216,7 @@ public class CLICommand implements Callable<Integer> {
         System.out.println("🔄 Max iterations: " + config.getCoverage().getMaxIterationsOrDefault());
         System.out.println();
 
-        IterativeOptimizer optimizer = new IterativeOptimizer(getProjectRoot(), resolveApiKey())
+        TestOptimizer optimizer = new IterativeOptimizer(getProjectRoot(), resolveApiKey())
             .setTargetCoverage(config.getCoverage().getTargetOrDefault())
             .setMaxIterations(config.getCoverage().getMaxIterationsOrDefault())
             .setVerbose(config.getOutput().getVerboseOrDefault())

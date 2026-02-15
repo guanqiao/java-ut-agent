@@ -3,6 +3,9 @@ package com.utagent.optimizer;
 import com.utagent.build.BuildToolAdapter;
 import com.utagent.build.BuildToolDetector;
 import com.utagent.coverage.CoverageAnalyzer;
+import com.utagent.exception.GenerationException;
+import com.utagent.exception.ParseException;
+import com.utagent.exception.UTAgentException;
 import com.utagent.generator.TestGenerator;
 import com.utagent.model.ClassInfo;
 import com.utagent.model.CoverageInfo;
@@ -21,7 +24,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-public class IterativeOptimizer {
+public class IterativeOptimizer implements TestOptimizer {
 
     private static final Logger logger = LoggerFactory.getLogger(IterativeOptimizer.class);
 
@@ -31,28 +34,46 @@ public class IterativeOptimizer {
     private final BuildToolAdapter buildToolAdapter;
     private final File projectRoot;
     private final File testOutputDir;
-    
+
     private double targetCoverage;
     private int maxIterations;
     private int currentIteration;
     private boolean verbose;
-    
+
     private Consumer<String> progressListener;
     private Consumer<CoverageReport> coverageListener;
 
-    public IterativeOptimizer(File projectRoot, String apiKey) {
+    /**
+     * 全依赖注入构造函数，便于测试和灵活配置
+     */
+    public IterativeOptimizer(File projectRoot,
+                              JavaCodeParser codeParser,
+                              TestGenerator testGenerator,
+                              CoverageAnalyzer coverageAnalyzer,
+                              BuildToolAdapter buildToolAdapter) {
         this.projectRoot = projectRoot;
-        this.codeParser = new JavaCodeParser();
-        this.testGenerator = new TestGenerator(apiKey);
-        this.coverageAnalyzer = new CoverageAnalyzer(projectRoot);
-        this.buildToolAdapter = detectBuildTool(projectRoot);
+        this.codeParser = codeParser;
+        this.testGenerator = testGenerator;
+        this.coverageAnalyzer = coverageAnalyzer;
+        this.buildToolAdapter = buildToolAdapter != null ? buildToolAdapter : detectBuildTool(projectRoot);
         this.testOutputDir = new File(projectRoot, "target/generated-test-sources");
         this.targetCoverage = 0.80;
         this.maxIterations = 10;
         this.currentIteration = 0;
         this.verbose = true;
-        
-        logger.info("Detected build tool: {}", buildToolAdapter.name());
+
+        logger.info("Detected build tool: {}", this.buildToolAdapter.name());
+    }
+
+    /**
+     * 便捷构造函数，自动创建依赖
+     */
+    public IterativeOptimizer(File projectRoot, String apiKey) {
+        this(projectRoot,
+             new JavaCodeParser(),
+             new TestGenerator(apiKey),
+             new CoverageAnalyzer(projectRoot),
+             null);
     }
     
     private BuildToolAdapter detectBuildTool(File projectRoot) {
@@ -65,27 +86,32 @@ public class IterativeOptimizer {
         return BuildToolDetector.getAdapter(com.utagent.build.BuildToolType.MAVEN);
     }
 
-    public IterativeOptimizer setTargetCoverage(double targetCoverage) {
+    @Override
+    public TestOptimizer setTargetCoverage(double targetCoverage) {
         this.targetCoverage = Math.min(1.0, Math.max(0.0, targetCoverage));
         return this;
     }
 
-    public IterativeOptimizer setMaxIterations(int maxIterations) {
+    @Override
+    public TestOptimizer setMaxIterations(int maxIterations) {
         this.maxIterations = Math.max(1, maxIterations);
         return this;
     }
 
-    public IterativeOptimizer setVerbose(boolean verbose) {
+    @Override
+    public TestOptimizer setVerbose(boolean verbose) {
         this.verbose = verbose;
         return this;
     }
 
-    public IterativeOptimizer setProgressListener(Consumer<String> progressListener) {
+    @Override
+    public TestOptimizer setProgressListener(Consumer<String> progressListener) {
         this.progressListener = progressListener;
         return this;
     }
 
-    public IterativeOptimizer setCoverageListener(Consumer<CoverageReport> coverageListener) {
+    @Override
+    public TestOptimizer setCoverageListener(Consumer<CoverageReport> coverageListener) {
         this.coverageListener = coverageListener;
         return this;
     }
@@ -184,17 +210,16 @@ public class IterativeOptimizer {
         try {
             Path testPath = determineTestPath(classInfo);
             Files.createDirectories(testPath.getParent());
-            
+
             File testFile = testPath.toFile();
             try (FileWriter writer = new FileWriter(testFile)) {
                 writer.write(testCode);
             }
-            
+
             logger.info("Generated test file: {}", testFile.getAbsolutePath());
             return testFile;
         } catch (IOException e) {
-            logger.error("Error writing test file", e);
-            throw new RuntimeException("Error writing test file", e);
+            throw new GenerationException("Failed to write test file for class: " + classInfo.className(), e);
         }
     }
 
@@ -326,18 +351,22 @@ public class IterativeOptimizer {
         }
     }
 
+    @Override
     public double getTargetCoverage() {
         return targetCoverage;
     }
 
+    @Override
     public int getCurrentIteration() {
         return currentIteration;
     }
 
+    @Override
     public int getMaxIterations() {
         return maxIterations;
     }
-    
+
+    @Override
     public String getBuildToolName() {
         return buildToolAdapter.name();
     }

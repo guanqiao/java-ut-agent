@@ -1,10 +1,7 @@
 package com.utagent.generator;
 
 import com.utagent.generator.llm.PromptBuilder;
-import com.utagent.generator.strategy.MyBatisPlusTestStrategy;
-import com.utagent.generator.strategy.MyBatisTestStrategy;
-import com.utagent.generator.strategy.SpringBootTestStrategy;
-import com.utagent.generator.strategy.SpringMvcTestStrategy;
+import com.utagent.generator.strategy.StrategyLoader;
 import com.utagent.generator.strategy.TestGenerationStrategy;
 import com.utagent.llm.ChatRequest;
 import com.utagent.llm.ChatResponse;
@@ -34,26 +31,56 @@ public class TestGenerator {
     private final LLMProvider llmProvider;
     private final PromptBuilder promptBuilder;
     private final FrameworkDetector frameworkDetector;
-    private final Map<FrameworkType, TestGenerationStrategy> strategies;
+    private final StrategyLoader strategyLoader;
     private final boolean useAI;
     private final AtomicReference<TokenUsage> totalTokenUsage = new AtomicReference<>(TokenUsage.empty());
 
+    /**
+     * 默认构造函数，使用模板生成（无AI）
+     */
     public TestGenerator() {
-        this(null, null, null, null);
+        this(null, null, null, null, null, null);
     }
 
+    /**
+     * 使用API Key的便捷构造函数
+     */
     public TestGenerator(String apiKey) {
-        this(apiKey, LLMConfig.DEFAULT_PROVIDER, null, null);
+        this(apiKey, LLMConfig.DEFAULT_PROVIDER, null, null, null, null);
     }
 
+    /**
+     * 完整参数构造函数
+     */
     public TestGenerator(String apiKey, String provider, String baseUrl, String model) {
-        this.llmProvider = createProvider(apiKey, provider, baseUrl, model);
+        this(apiKey, provider, baseUrl, model, null, null);
+    }
+
+    /**
+     * 全依赖注入构造函数，便于测试和灵活配置
+     */
+    public TestGenerator(String apiKey,
+                         String provider,
+                         String baseUrl,
+                         String model,
+                         LLMProvider llmProvider,
+                         Map<FrameworkType, TestGenerationStrategy> strategies) {
+        if (llmProvider != null) {
+            this.llmProvider = llmProvider;
+        } else {
+            this.llmProvider = createProvider(apiKey, provider, baseUrl, model);
+        }
         this.promptBuilder = new PromptBuilder();
         this.frameworkDetector = new FrameworkDetector();
-        this.strategies = new EnumMap<>(FrameworkType.class);
-        this.useAI = llmProvider != null && llmProvider.isAvailable();
-        
-        initializeStrategies();
+        this.useAI = this.llmProvider != null && this.llmProvider.isAvailable();
+
+        // 使用 StrategyLoader 加载策略
+        if (strategies != null && !strategies.isEmpty()) {
+            this.strategyLoader = new StrategyLoader(false); // 不使用 SPI
+            strategies.forEach(this.strategyLoader::registerStrategy);
+        } else {
+            this.strategyLoader = new StrategyLoader(true); // 使用 SPI
+        }
     }
     
     public static TestGenerator fromConfig(LLMConfig config) {
@@ -74,21 +101,14 @@ public class TestGenerator {
             };
             apiKey = envKey;
         }
-        
+
         if (apiKey == null && !"ollama".equalsIgnoreCase(provider)) {
             logger.info("No API key provided, using template-based generation");
             return null;
         }
-        
+
         LLMProviderType providerType = LLMProviderType.fromId(provider);
         return LLMProviderFactory.create(providerType, apiKey, baseUrl, model);
-    }
-
-    private void initializeStrategies() {
-        strategies.put(FrameworkType.SPRING_MVC, new SpringMvcTestStrategy());
-        strategies.put(FrameworkType.SPRING_BOOT, new SpringBootTestStrategy());
-        strategies.put(FrameworkType.MYBATIS, new MyBatisTestStrategy());
-        strategies.put(FrameworkType.MYBATIS_PLUS, new MyBatisPlusTestStrategy());
     }
 
     public String generateTestClass(ClassInfo classInfo) {
@@ -141,19 +161,19 @@ public class TestGenerator {
 
     private TestGenerationStrategy selectStrategy(Set<FrameworkType> frameworks) {
         if (frameworks.contains(FrameworkType.MYBATIS_PLUS)) {
-            return strategies.get(FrameworkType.MYBATIS_PLUS);
+            return strategyLoader.getStrategy(FrameworkType.MYBATIS_PLUS);
         }
         if (frameworks.contains(FrameworkType.SPRING_BOOT)) {
-            return strategies.get(FrameworkType.SPRING_BOOT);
+            return strategyLoader.getStrategy(FrameworkType.SPRING_BOOT);
         }
         if (frameworks.contains(FrameworkType.MYBATIS)) {
-            return strategies.get(FrameworkType.MYBATIS);
+            return strategyLoader.getStrategy(FrameworkType.MYBATIS);
         }
         if (frameworks.contains(FrameworkType.SPRING_MVC)) {
-            return strategies.get(FrameworkType.SPRING_MVC);
+            return strategyLoader.getStrategy(FrameworkType.SPRING_MVC);
         }
-        
-        return strategies.get(FrameworkType.SPRING_MVC);
+
+        return strategyLoader.getDefaultStrategy();
     }
 
     private String generateAdditionalTestsWithAI(ClassInfo classInfo, List<CoverageInfo> coverageInfo) {
