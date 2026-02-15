@@ -1,0 +1,314 @@
+package com.utagent.optimizer;
+
+import com.utagent.coverage.CoverageAnalyzer;
+import com.utagent.generator.TestGenerator;
+import com.utagent.model.ClassInfo;
+import com.utagent.model.CoverageInfo;
+import com.utagent.model.CoverageReport;
+import com.utagent.parser.JavaCodeParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+
+public class IterativeOptimizer {
+
+    private static final Logger logger = LoggerFactory.getLogger(IterativeOptimizer.class);
+
+    private final JavaCodeParser codeParser;
+    private final TestGenerator testGenerator;
+    private final CoverageAnalyzer coverageAnalyzer;
+    private final File projectRoot;
+    private final File testOutputDir;
+    
+    private double targetCoverage;
+    private int maxIterations;
+    private int currentIteration;
+    private boolean verbose;
+    
+    private Consumer<String> progressListener;
+    private Consumer<CoverageReport> coverageListener;
+
+    public IterativeOptimizer(File projectRoot, String apiKey) {
+        this.projectRoot = projectRoot;
+        this.codeParser = new JavaCodeParser();
+        this.testGenerator = new TestGenerator(apiKey);
+        this.coverageAnalyzer = new CoverageAnalyzer(projectRoot);
+        this.testOutputDir = new File(projectRoot, "target/generated-test-sources");
+        this.targetCoverage = 0.80;
+        this.maxIterations = 10;
+        this.currentIteration = 0;
+        this.verbose = true;
+    }
+
+    public IterativeOptimizer setTargetCoverage(double targetCoverage) {
+        this.targetCoverage = Math.min(1.0, Math.max(0.0, targetCoverage));
+        return this;
+    }
+
+    public IterativeOptimizer setMaxIterations(int maxIterations) {
+        this.maxIterations = Math.max(1, maxIterations);
+        return this;
+    }
+
+    public IterativeOptimizer setVerbose(boolean verbose) {
+        this.verbose = verbose;
+        return this;
+    }
+
+    public IterativeOptimizer setProgressListener(Consumer<String> progressListener) {
+        this.progressListener = progressListener;
+        return this;
+    }
+
+    public IterativeOptimizer setCoverageListener(Consumer<CoverageReport> coverageListener) {
+        this.coverageListener = coverageListener;
+        return this;
+    }
+
+    public OptimizationResult optimize(File sourceFile) {
+        return optimize(sourceFile, null);
+    }
+
+    public OptimizationResult optimize(File sourceFile, File existingTestFile) {
+        logger.info("Starting optimization for: {}", sourceFile.getAbsolutePath());
+        notifyProgress("Starting optimization for: " + sourceFile.getName());
+        
+        OptimizationResult result = new OptimizationResult();
+        result.setSourceFile(sourceFile);
+        
+        var parsedClass = codeParser.parseFile(sourceFile);
+        if (parsedClass.isEmpty()) {
+            logger.error("Failed to parse source file: {}", sourceFile.getAbsolutePath());
+            result.setSuccess(false);
+            result.setErrorMessage("Failed to parse source file");
+            return result;
+        }
+        
+        ClassInfo classInfo = parsedClass.get();
+        result.setClassInfo(classInfo);
+        
+        String testCode = testGenerator.generateTestClass(classInfo);
+        File testFile = writeTestFile(classInfo, testCode);
+        result.setGeneratedTestFile(testFile);
+        
+        notifyProgress("Generated initial test file: " + testFile.getName());
+        
+        CoverageReport currentCoverage = runTestsAndGetCoverage();
+        result.addCoverageReport(currentIteration, currentCoverage);
+        
+        notifyCoverage(currentCoverage);
+        
+        while (!meetsTarget(currentCoverage) && currentIteration < maxIterations) {
+            currentIteration++;
+            notifyProgress("Iteration " + currentIteration + ": Current coverage " + 
+                String.format("%.1f%%", currentCoverage.overallLineCoverage() * 100));
+            
+            List<CoverageInfo> uncoveredInfo = getUncoveredInfo(currentCoverage, classInfo);
+            
+            if (uncoveredInfo.isEmpty()) {
+                notifyProgress("No more uncovered code to improve");
+                break;
+            }
+            
+            String additionalTests = testGenerator.generateAdditionalTests(classInfo, uncoveredInfo);
+            
+            if (additionalTests != null && !additionalTests.isEmpty()) {
+                appendTestsToFile(testFile, additionalTests);
+                notifyProgress("Added additional tests for uncovered code");
+            }
+            
+            currentCoverage = runTestsAndGetCoverage();
+            result.addCoverageReport(currentIteration, currentCoverage);
+            notifyCoverage(currentCoverage);
+        }
+        
+        result.setFinalCoverage(currentCoverage);
+        result.setSuccess(meetsTarget(currentCoverage));
+        result.setIterations(currentIteration);
+        
+        if (result.isSuccess()) {
+            notifyProgress("Target coverage achieved: " + 
+                String.format("%.1f%%", currentCoverage.overallLineCoverage() * 100));
+        } else {
+            notifyProgress("Max iterations reached. Final coverage: " + 
+                String.format("%.1f%%", currentCoverage.overallLineCoverage() * 100));
+        }
+        
+        return result;
+    }
+
+    public List<OptimizationResult> optimizeDirectory(File sourceDirectory) {
+        List<OptimizationResult> results = new ArrayList<>();
+        
+        List<File> javaFiles = findJavaFiles(sourceDirectory);
+        notifyProgress("Found " + javaFiles.size() + " Java files to process");
+        
+        for (File javaFile : javaFiles) {
+            try {
+                OptimizationResult result = optimize(javaFile);
+                results.add(result);
+            } catch (Exception e) {
+                logger.error("Error optimizing file: {}", javaFile.getAbsolutePath(), e);
+            }
+        }
+        
+        return results;
+    }
+
+    private File writeTestFile(ClassInfo classInfo, String testCode) {
+        try {
+            Path testPath = determineTestPath(classInfo);
+            Files.createDirectories(testPath.getParent());
+            
+            File testFile = testPath.toFile();
+            try (FileWriter writer = new FileWriter(testFile)) {
+                writer.write(testCode);
+            }
+            
+            logger.info("Generated test file: {}", testFile.getAbsolutePath());
+            return testFile;
+        } catch (IOException e) {
+            logger.error("Error writing test file", e);
+            throw new RuntimeException("Error writing test file", e);
+        }
+    }
+
+    private Path determineTestPath(ClassInfo classInfo) {
+        String packagePath = classInfo.packageName().replace('.', File.separatorChar);
+        String testClassName = classInfo.className() + "Test.java";
+        
+        Path testPath = projectRoot.toPath()
+            .resolve("src")
+            .resolve("test")
+            .resolve("java")
+            .resolve(packagePath)
+            .resolve(testClassName);
+        
+        return testPath;
+    }
+
+    private void appendTestsToFile(File testFile, String additionalTests) {
+        try {
+            String existingContent = Files.readString(testFile.toPath());
+            
+            int lastBraceIndex = existingContent.lastIndexOf('}');
+            if (lastBraceIndex > 0) {
+                String newContent = existingContent.substring(0, lastBraceIndex) + 
+                    "\n" + additionalTests + "\n}\n";
+                Files.writeString(testFile.toPath(), newContent);
+            }
+        } catch (IOException e) {
+            logger.error("Error appending tests to file", e);
+        }
+    }
+
+    private CoverageReport runTestsAndGetCoverage() {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                "mvn", "test", "jacoco:report", "-q"
+            );
+            pb.directory(projectRoot);
+            pb.redirectErrorStream(true);
+            
+            Process process = pb.start();
+            int exitCode = process.waitFor();
+            
+            if (exitCode != 0) {
+                logger.warn("Tests failed with exit code: {}", exitCode);
+            }
+            
+            File jacocoXml = new File(projectRoot, "target/site/jacoco/jacoco.xml");
+            if (jacocoXml.exists()) {
+                return coverageAnalyzer.analyzeFromJacocoXml(jacocoXml);
+            }
+            
+            File execFile = new File(projectRoot, "target/jacoco.exec");
+            if (execFile.exists()) {
+                return coverageAnalyzer.analyzeCoverage(execFile);
+            }
+            
+            return new CoverageReport();
+        } catch (Exception e) {
+            logger.error("Error running tests", e);
+            return new CoverageReport();
+        }
+    }
+
+    private List<CoverageInfo> getUncoveredInfo(CoverageReport report, ClassInfo classInfo) {
+        List<CoverageInfo> uncoveredInfo = new ArrayList<>();
+        
+        for (CoverageInfo info : report.classCoverages()) {
+            if (info.className().equals(classInfo.fullyQualifiedName()) ||
+                info.className().equals(classInfo.className())) {
+                if (info.getLineCoverageRate() < 1.0) {
+                    uncoveredInfo.add(info);
+                }
+            }
+        }
+        
+        return uncoveredInfo;
+    }
+
+    private boolean meetsTarget(CoverageReport report) {
+        return report.overallLineCoverage() >= targetCoverage;
+    }
+
+    private List<File> findJavaFiles(File directory) {
+        List<File> javaFiles = new ArrayList<>();
+        
+        if (directory.isDirectory()) {
+            File[] files = directory.listFiles((dir, name) -> 
+                name.endsWith(".java") && !name.endsWith("Test.java"));
+            
+            if (files != null) {
+                for (File file : files) {
+                    javaFiles.add(file);
+                }
+            }
+            
+            File[] subDirs = directory.listFiles(File::isDirectory);
+            if (subDirs != null) {
+                for (File subDir : subDirs) {
+                    javaFiles.addAll(findJavaFiles(subDir));
+                }
+            }
+        }
+        
+        return javaFiles;
+    }
+
+    private void notifyProgress(String message) {
+        if (verbose) {
+            logger.info(message);
+        }
+        if (progressListener != null) {
+            progressListener.accept(message);
+        }
+    }
+
+    private void notifyCoverage(CoverageReport report) {
+        if (coverageListener != null) {
+            coverageListener.accept(report);
+        }
+    }
+
+    public double getTargetCoverage() {
+        return targetCoverage;
+    }
+
+    public int getCurrentIteration() {
+        return currentIteration;
+    }
+
+    public int getMaxIterations() {
+        return maxIterations;
+    }
+}
