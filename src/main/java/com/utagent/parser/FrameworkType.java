@@ -9,6 +9,11 @@ public enum FrameworkType {
     MYBATIS("MyBatis"),
     MYBATIS_PLUS("MyBatis Plus"),
     SPRING_DATA_JPA("Spring Data JPA"),
+    DUBBO("Apache Dubbo"),
+    LOMBOK("Lombok"),
+    REACTIVE("Spring WebFlux"),
+    GRPC("gRPC"),
+    MAPSTRUCT("MapStruct"),
     NONE("None");
 
     private final String displayName;
@@ -19,5 +24,18 @@ public enum FrameworkType {
 
     public String getDisplayName() {
         return displayName;
+    }
+    
+    public boolean requiresSpringContext() {
+        return this == SPRING_MVC || this == SPRING_BOOT || 
+               this == SPRING_DATA_JPA || this == REACTIVE;
+    }
+    
+    public boolean isPersistenceFramework() {
+        return this == MYBATIS || this == MYBATIS_PLUS || this == SPRING_DATA_JPA;
+    }
+    
+    public boolean isRpcFramework() {
+        return this == DUBBO || this == GRPC;
     }
 }

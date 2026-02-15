@@ -38,6 +38,32 @@ public class FrameworkDetector {
         "Entity", "Table", "Id", "GeneratedValue", "Column", "OneToMany",
         "ManyToOne", "ManyToMany", "OneToOne", "JoinColumn", "Query"
     );
+    
+    private static final Set<String> DUBBO_ANNOTATIONS = Set.of(
+        "DubboService", "DubboReference", "Service", "Reference",
+        "DubboComponentScan", "EnableDubbo"
+    );
+    
+    private static final Set<String> LOMBOK_ANNOTATIONS = Set.of(
+        "Data", "Getter", "Setter", "Builder", "AllArgsConstructor",
+        "NoArgsConstructor", "RequiredArgsConstructor", "ToString",
+        "EqualsAndHashCode", "Value", "Slf4j", "Log", "Log4j", "Log4j2",
+        "FieldNameConstants", "With", "Singular", "Cleanup", "Synchronized",
+        "Delegate", "Accessors", "FieldDefaults", "Builder.Default"
+    );
+    
+    private static final Set<String> REACTIVE_ANNOTATIONS = Set.of(
+        "RestController", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping"
+    );
+    
+    private static final Set<String> GRPC_ANNOTATIONS = Set.of(
+        "GrpcService"
+    );
+    
+    private static final Set<String> MAPSTRUCT_ANNOTATIONS = Set.of(
+        "Mapper", "Mapping", "Mappings", "MappingTarget", "InheritInverseConfiguration",
+        "ValueMappings", "ValueMapping", "Named", "AfterMapping", "BeforeMapping"
+    );
 
     private final Set<FrameworkType> detectedFrameworks = EnumSet.noneOf(FrameworkType.class);
     private final List<String> detectedImports = new ArrayList<>();
@@ -90,6 +116,18 @@ public class FrameworkDetector {
             if (JPA_ANNOTATIONS.contains(annotationName)) {
                 detectedFrameworks.add(FrameworkType.SPRING_DATA_JPA);
             }
+            if (DUBBO_ANNOTATIONS.contains(annotationName)) {
+                detectedFrameworks.add(FrameworkType.DUBBO);
+            }
+            if (LOMBOK_ANNOTATIONS.contains(annotationName)) {
+                detectedFrameworks.add(FrameworkType.LOMBOK);
+            }
+            if (GRPC_ANNOTATIONS.contains(annotationName)) {
+                detectedFrameworks.add(FrameworkType.GRPC);
+            }
+            if (MAPSTRUCT_ANNOTATIONS.contains(annotationName)) {
+                detectedFrameworks.add(FrameworkType.MAPSTRUCT);
+            }
         }
     }
 
@@ -113,6 +151,24 @@ public class FrameworkDetector {
                 importStatement.startsWith("jakarta.persistence")) {
                 detectedFrameworks.add(FrameworkType.SPRING_DATA_JPA);
             }
+            if (importStatement.startsWith("org.apache.dubbo") ||
+                importStatement.startsWith("com.alibaba.dubbo")) {
+                detectedFrameworks.add(FrameworkType.DUBBO);
+            }
+            if (importStatement.startsWith("lombok")) {
+                detectedFrameworks.add(FrameworkType.LOMBOK);
+            }
+            if (importStatement.startsWith("org.springframework.web.reactive") ||
+                importStatement.startsWith("reactor.") ||
+                importStatement.startsWith("io.reactivex")) {
+                detectedFrameworks.add(FrameworkType.REACTIVE);
+            }
+            if (importStatement.startsWith("io.grpc")) {
+                detectedFrameworks.add(FrameworkType.GRPC);
+            }
+            if (importStatement.startsWith("org.mapstruct")) {
+                detectedFrameworks.add(FrameworkType.MAPSTRUCT);
+            }
         }
     }
 
@@ -128,7 +184,8 @@ public class FrameworkDetector {
     }
 
     public boolean isService(ClassInfo classInfo) {
-        return classInfo.hasAnnotation("Service");
+        return classInfo.hasAnnotation("Service") ||
+               classInfo.hasAnnotation("DubboService");
     }
 
     public boolean isRepository(ClassInfo classInfo) {
@@ -147,6 +204,34 @@ public class FrameworkDetector {
     public boolean isEntity(ClassInfo classInfo) {
         return classInfo.hasAnnotation("Entity") ||
                classInfo.hasAnnotation("TableName");
+    }
+    
+    public boolean isDubboService(ClassInfo classInfo) {
+        return classInfo.hasAnnotation("DubboService") ||
+               classInfo.hasAnnotation("Service") && 
+               detectedFrameworks.contains(FrameworkType.DUBBO);
+    }
+    
+    public boolean isReactiveController(ClassInfo classInfo) {
+        return isController(classInfo) && 
+               detectedFrameworks.contains(FrameworkType.REACTIVE);
+    }
+    
+    public boolean isMapStructMapper(ClassInfo classInfo) {
+        return classInfo.hasAnnotation("Mapper") && 
+               detectedFrameworks.contains(FrameworkType.MAPSTRUCT);
+    }
+    
+    public boolean hasLombok(ClassInfo classInfo) {
+        return detectedFrameworks.contains(FrameworkType.LOMBOK);
+    }
+    
+    public boolean hasBuilder(ClassInfo classInfo) {
+        return classInfo.hasAnnotation("Builder");
+    }
+    
+    public boolean hasData(ClassInfo classInfo) {
+        return classInfo.hasAnnotation("Data");
     }
 
     public boolean hasDependencyInjection(ClassInfo classInfo) {

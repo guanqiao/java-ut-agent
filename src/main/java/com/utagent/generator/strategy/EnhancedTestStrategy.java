@@ -19,6 +19,29 @@ public abstract class EnhancedTestStrategy implements TestGenerationStrategy {
     protected boolean includeEdgeCases = true;
     protected boolean includeParameterizedTests = false;
     
+    @Override
+    public Set<FrameworkType> getSupportedFrameworks() {
+        return Set.of(FrameworkType.NONE);
+    }
+    
+    @Override
+    public String getTestAnnotation() {
+        return "@Test";
+    }
+    
+    @Override
+    public String[] getRequiredImports() {
+        return new String[] {
+            "org.junit.jupiter.api.Test",
+            "org.junit.jupiter.api.DisplayName",
+            "org.junit.jupiter.api.BeforeEach",
+            "org.mockito.InjectMocks",
+            "org.mockito.Mock",
+            "static org.junit.jupiter.api.Assertions.*",
+            "static org.mockito.Mockito.*"
+        };
+    }
+    
     public void setIncludeNegativeTests(boolean include) {
         this.includeNegativeTests = include;
     }
