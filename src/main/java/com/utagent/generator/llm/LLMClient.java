@@ -1,5 +1,6 @@
 package com.utagent.generator.llm;
 
+import com.utagent.llm.SslUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -29,21 +30,32 @@ public class LLMClient {
     private final String apiKey;
     private final String apiUrl;
     private final String model;
+    private final String caCertPath;
 
     public LLMClient(String apiKey) {
         this(apiKey, OPENAI_API_URL, DEFAULT_MODEL);
     }
 
     public LLMClient(String apiKey, String apiUrl, String model) {
+        this(apiKey, apiUrl, model, null);
+    }
+
+    public LLMClient(String apiKey, String apiUrl, String model, String caCertPath) {
         this.apiKey = apiKey;
         this.apiUrl = apiUrl != null ? apiUrl : OPENAI_API_URL;
         this.model = model != null ? model : DEFAULT_MODEL;
-        this.httpClient = new OkHttpClient.Builder()
+        this.caCertPath = caCertPath;
+        this.httpClient = createHttpClient(caCertPath);
+        this.objectMapper = new ObjectMapper();
+    }
+
+    private OkHttpClient createHttpClient(String caCertPath) {
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
-            .build();
-        this.objectMapper = new ObjectMapper();
+            .writeTimeout(60, TimeUnit.SECONDS);
+        
+        return SslUtils.configureSsl(builder, caCertPath).build();
     }
 
     public String chat(String systemPrompt, String userMessage) {

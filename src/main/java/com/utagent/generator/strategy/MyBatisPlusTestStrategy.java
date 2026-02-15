@@ -116,7 +116,91 @@ public class MyBatisPlusTestStrategy implements TestGenerationStrategy {
     }
 
     private String generateMapperTestMethod(ClassInfo classInfo, MethodInfo method) {
-        return baseStrategy.generateTestMethod(classInfo, method.name(), List.of());
+        return generateCustomMapperTestMethod(classInfo, method);
+    }
+
+    private String generateCustomMapperTestMethod(ClassInfo classInfo, MethodInfo method) {
+        StringBuilder sb = new StringBuilder();
+        
+        String operationType = detectOperationType(method);
+        
+        sb.append("    @Test\n");
+        sb.append("    @DisplayName(\"Should ").append(operationType)
+          .append(" ").append(method.name()).append(" successfully\")\n");
+        sb.append("    void should").append(capitalize(method.name())).append("Successfully() {\n");
+        sb.append("        // Given\n");
+        
+        for (var param : method.parameters()) {
+            sb.append("        ").append(param.type()).append(" ")
+              .append(param.name()).append(" = ")
+              .append(generateTestValue(param.type())).append(";\n");
+        }
+        
+        if (!method.parameters().isEmpty()) {
+            sb.append("\n");
+        }
+        
+        sb.append("        // When\n");
+        
+        if (!method.returnType().equals("void")) {
+            sb.append("        ").append(method.returnType()).append(" result = ");
+        }
+        
+        sb.append(toCamelCase(classInfo.className())).append(".")
+          .append(method.name()).append("(");
+        sb.append(String.join(", ", 
+            method.parameters().stream().map(p -> p.name()).toList()));
+        sb.append(");\n\n");
+        
+        sb.append("        // Then\n");
+        if (!method.returnType().equals("void")) {
+            sb.append("        assertNotNull(result);\n");
+        }
+        sb.append("    }\n");
+        
+        return sb.toString();
+    }
+
+    private String detectOperationType(MethodInfo method) {
+        String methodName = method.name().toLowerCase();
+        
+        if (methodName.startsWith("select") || methodName.startsWith("find") ||
+            methodName.startsWith("get") || methodName.startsWith("query") ||
+            methodName.startsWith("list") || methodName.startsWith("count")) {
+            return "select";
+        }
+        if (methodName.startsWith("insert") || methodName.startsWith("add") ||
+            methodName.startsWith("create") || methodName.startsWith("save")) {
+            return "insert";
+        }
+        if (methodName.startsWith("update") || methodName.startsWith("modify") ||
+            methodName.startsWith("edit")) {
+            return "update";
+        }
+        if (methodName.startsWith("delete") || methodName.startsWith("remove")) {
+            return "delete";
+        }
+        
+        return "execute";
+    }
+
+    private String generateTestValue(String type) {
+        if (type == null) return "null";
+        
+        return switch (type) {
+            case "String" -> "\"test_value\"";
+            case "int", "Integer" -> "1";
+            case "long", "Long" -> "1L";
+            case "boolean", "Boolean" -> "true";
+            case "double", "Double" -> "1.0";
+            case "float", "Float" -> "1.0f";
+            default -> {
+                if (type.endsWith("Id") || type.endsWith("ID")) {
+                    yield "1L";
+                }
+                yield "null";
+            }
+        };
     }
 
     private String generateBaseMapperTests(ClassInfo classInfo) {

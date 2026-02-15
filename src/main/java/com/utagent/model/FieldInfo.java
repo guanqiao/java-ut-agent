@@ -25,6 +25,6 @@ public record FieldInfo(
 
     public boolean isDependencyInjection() {
         return hasAnnotation("Autowired") || hasAnnotation("Resource") ||
-               hasAnnotation("Inject");
+               hasAnnotation("Inject") || hasAnnotation("Value");
     }
 }

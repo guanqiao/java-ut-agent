@@ -3,12 +3,15 @@ package com.utagent.parser;
 import com.utagent.model.AnnotationInfo;
 import com.utagent.model.ClassInfo;
 import com.utagent.model.FieldInfo;
+import com.utagent.model.MethodInfo;
+import com.utagent.model.ParameterInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -191,5 +194,318 @@ class FrameworkDetectorTest {
 
         assertTrue(detector.hasDependencyInjection(classInfo));
         assertEquals(1, detector.getInjectedDependencies(classInfo).size());
+    }
+
+    @Test
+    @DisplayName("Should detect Spring MVC from Controller annotation")
+    void shouldDetectSpringMvcFromControllerAnnotation() {
+        ClassInfo classInfo = new ClassInfo(
+            "com.example",
+            "HomeController",
+            "com.example.HomeController",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            List.of(new AnnotationInfo("Controller")),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            false, false, false, new java.util.HashMap<>()
+        );
+
+        Set<FrameworkType> frameworks = detector.detectFrameworks(classInfo);
+        
+        assertTrue(frameworks.contains(FrameworkType.SPRING_MVC));
+        assertTrue(detector.isController(classInfo));
+    }
+
+    @Test
+    @DisplayName("Should detect MyBatis from SQL annotations")
+    void shouldDetectMyBatisFromSqlAnnotations() {
+        List<MethodInfo> methods = new ArrayList<>();
+        methods.add(new MethodInfo("findById", "User",
+            List.of(new ParameterInfo("id", "Long")),
+            List.of(new AnnotationInfo("Select", Map.of("value", "SELECT * FROM users WHERE id = #{id}")),
+                    new AnnotationInfo("Options", Map.of("useCache", "true"))),
+            null, 0, 0, new ArrayList<>(),
+            false, false, false, true, false, false));
+        
+        ClassInfo classInfo = new ClassInfo(
+            "com.example.mapper",
+            "UserMapper",
+            "com.example.mapper.UserMapper",
+            methods,
+            new ArrayList<>(),
+            new ArrayList<>(),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            true, false, false, new java.util.HashMap<>()
+        );
+
+        Set<FrameworkType> frameworks = detector.detectFrameworks(classInfo);
+        
+        assertTrue(frameworks.contains(FrameworkType.MYBATIS));
+    }
+
+    @Test
+    @DisplayName("Should detect Spring Data JPA from Entity annotation")
+    void shouldDetectSpringDataJpaFromEntityAnnotation() {
+        ClassInfo classInfo = new ClassInfo(
+            "com.example.entity",
+            "User",
+            "com.example.entity.User",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            List.of(new AnnotationInfo("Entity"), new AnnotationInfo("Table")),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            false, false, false, new java.util.HashMap<>()
+        );
+
+        Set<FrameworkType> frameworks = detector.detectFrameworks(classInfo);
+        
+        assertTrue(frameworks.contains(FrameworkType.SPRING_DATA_JPA));
+        assertTrue(detector.isEntity(classInfo));
+    }
+
+    @Test
+    @DisplayName("Should detect Spring Boot from imports")
+    void shouldDetectSpringBootFromImports() {
+        ClassInfo classInfo = new ClassInfo(
+            "com.example",
+            "Config",
+            "com.example.Config",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            new ArrayList<>(),
+            List.of(
+                "org.springframework.boot.autoconfigure.SpringBootApplication",
+                "org.springframework.boot.context.properties.ConfigurationProperties"
+            ),
+            null,
+            new ArrayList<>(),
+            false, false, false, new java.util.HashMap<>()
+        );
+
+        Set<FrameworkType> frameworks = detector.detectFrameworks(classInfo);
+        
+        assertTrue(frameworks.contains(FrameworkType.SPRING_BOOT));
+    }
+
+    @Test
+    @DisplayName("Should detect MyBatis Plus from imports")
+    void shouldDetectMyBatisPlusFromImports() {
+        ClassInfo classInfo = new ClassInfo(
+            "com.example",
+            "UserService",
+            "com.example.UserService",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            new ArrayList<>(),
+            List.of(
+                "com.baomidou.mybatisplus.core.mapper.BaseMapper",
+                "com.baomidou.mybatisplus.extension.service.impl.ServiceImpl"
+            ),
+            null,
+            new ArrayList<>(),
+            false, false, false, new java.util.HashMap<>()
+        );
+
+        Set<FrameworkType> frameworks = detector.detectFrameworks(classInfo);
+        
+        assertTrue(frameworks.contains(FrameworkType.MYBATIS_PLUS));
+        assertTrue(frameworks.contains(FrameworkType.MYBATIS));
+    }
+
+    @Test
+    @DisplayName("Should identify repository class by annotation")
+    void shouldIdentifyRepositoryClassByAnnotation() {
+        ClassInfo classInfo = new ClassInfo(
+            "com.example.repo",
+            "UserRepository",
+            "com.example.repo.UserRepository",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            List.of(new AnnotationInfo("Repository")),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            false, false, false, new java.util.HashMap<>()
+        );
+
+        assertTrue(detector.isRepository(classInfo));
+    }
+
+    @Test
+    @DisplayName("Should identify repository class by name suffix")
+    void shouldIdentifyRepositoryClassByNameSuffix() {
+        ClassInfo classInfo = new ClassInfo(
+            "com.example.repo",
+            "UserRepository",
+            "com.example.repo.UserRepository",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            new ArrayList<>(),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            false, false, false, new java.util.HashMap<>()
+        );
+
+        assertTrue(detector.isRepository(classInfo));
+    }
+
+    @Test
+    @DisplayName("Should identify MyBatis mapper")
+    void shouldIdentifyMyBatisMapper() {
+        ClassInfo classInfo = new ClassInfo(
+            "com.example.mapper",
+            "UserMapper",
+            "com.example.mapper.UserMapper",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            List.of(new AnnotationInfo("Mapper")),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            true, false, false, new java.util.HashMap<>()
+        );
+
+        assertTrue(detector.isMyBatisMapper(classInfo));
+    }
+
+    @Test
+    @DisplayName("Should identify entity by TableName annotation")
+    void shouldIdentifyEntityByTableNameAnnotation() {
+        ClassInfo classInfo = new ClassInfo(
+            "com.example.entity",
+            "User",
+            "com.example.entity.User",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            List.of(new AnnotationInfo("TableName", Map.of("value", "t_user"))),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            false, false, false, new java.util.HashMap<>()
+        );
+
+        assertTrue(detector.isEntity(classInfo));
+    }
+
+    @Test
+    @DisplayName("Should detect multiple frameworks")
+    void shouldDetectMultipleFrameworks() {
+        List<MethodInfo> methods = new ArrayList<>();
+        methods.add(new MethodInfo("getUser", "User",
+            List.of(new ParameterInfo("id", "Long")),
+            List.of(new AnnotationInfo("GetMapping", Map.of("value", "/users/{id}"))),
+            null, 0, 0, new ArrayList<>(),
+            false, false, false, true, false, false));
+        
+        ClassInfo classInfo = new ClassInfo(
+            "com.example.controller",
+            "UserController",
+            "com.example.controller.UserController",
+            methods,
+            new ArrayList<>(),
+            List.of(new AnnotationInfo("RestController")),
+            List.of(
+                "org.springframework.web.bind.annotation.RestController",
+                "org.springframework.web.bind.annotation.GetMapping"
+            ),
+            null,
+            new ArrayList<>(),
+            false, false, false, new java.util.HashMap<>()
+        );
+
+        Set<FrameworkType> frameworks = detector.detectFrameworks(classInfo);
+        
+        assertTrue(frameworks.contains(FrameworkType.SPRING_MVC));
+    }
+
+    @Test
+    @DisplayName("Should detect from method annotations")
+    void shouldDetectFromMethodAnnotations() {
+        List<MethodInfo> methods = new ArrayList<>();
+        methods.add(new MethodInfo("findUsers", "List<User>",
+            new ArrayList<>(),
+            List.of(new AnnotationInfo("Select", Map.of("value", "SELECT * FROM users"))),
+            null, 0, 0, new ArrayList<>(),
+            false, false, false, true, false, false));
+        
+        ClassInfo classInfo = new ClassInfo(
+            "com.example.mapper",
+            "UserMapper",
+            "com.example.mapper.UserMapper",
+            methods,
+            new ArrayList<>(),
+            new ArrayList<>(),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            true, false, false, new java.util.HashMap<>()
+        );
+
+        Set<FrameworkType> frameworks = detector.detectFrameworks(classInfo);
+        
+        assertTrue(frameworks.contains(FrameworkType.MYBATIS));
+    }
+
+    @Test
+    @DisplayName("Should return empty set for plain class")
+    void shouldReturnEmptySetForPlainClass() {
+        ClassInfo classInfo = new ClassInfo(
+            "com.example",
+            "PlainClass",
+            "com.example.PlainClass",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            new ArrayList<>(),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            false, false, false, new java.util.HashMap<>()
+        );
+
+        Set<FrameworkType> frameworks = detector.detectFrameworks(classInfo);
+        
+        assertTrue(frameworks.isEmpty() || frameworks.contains(FrameworkType.NONE));
+    }
+
+    @Test
+    @DisplayName("Should detect frameworks from multiple classes")
+    void shouldDetectFrameworksFromMultipleClasses() {
+        ClassInfo controller = new ClassInfo(
+            "com.example",
+            "UserController",
+            "com.example.UserController",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            List.of(new AnnotationInfo("RestController")),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            false, false, false, new java.util.HashMap<>()
+        );
+        
+        ClassInfo mapper = new ClassInfo(
+            "com.example.mapper",
+            "UserMapper",
+            "com.example.mapper.UserMapper",
+            new ArrayList<>(),
+            new ArrayList<>(),
+            List.of(new AnnotationInfo("Mapper")),
+            new ArrayList<>(),
+            null,
+            new ArrayList<>(),
+            true, false, false, new java.util.HashMap<>()
+        );
+
+        Set<FrameworkType> frameworks = detector.detectFrameworks(List.of(controller, mapper));
+        
+        assertTrue(frameworks.contains(FrameworkType.SPRING_MVC));
+        assertTrue(frameworks.contains(FrameworkType.MYBATIS));
     }
 }

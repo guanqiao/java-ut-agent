@@ -1,5 +1,7 @@
 package com.utagent.optimizer;
 
+import com.utagent.build.BuildToolAdapter;
+import com.utagent.build.BuildToolDetector;
 import com.utagent.coverage.CoverageAnalyzer;
 import com.utagent.generator.TestGenerator;
 import com.utagent.model.ClassInfo;
@@ -16,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 public class IterativeOptimizer {
@@ -25,6 +28,7 @@ public class IterativeOptimizer {
     private final JavaCodeParser codeParser;
     private final TestGenerator testGenerator;
     private final CoverageAnalyzer coverageAnalyzer;
+    private final BuildToolAdapter buildToolAdapter;
     private final File projectRoot;
     private final File testOutputDir;
     
@@ -41,11 +45,24 @@ public class IterativeOptimizer {
         this.codeParser = new JavaCodeParser();
         this.testGenerator = new TestGenerator(apiKey);
         this.coverageAnalyzer = new CoverageAnalyzer(projectRoot);
+        this.buildToolAdapter = detectBuildTool(projectRoot);
         this.testOutputDir = new File(projectRoot, "target/generated-test-sources");
         this.targetCoverage = 0.80;
         this.maxIterations = 10;
         this.currentIteration = 0;
         this.verbose = true;
+        
+        logger.info("Detected build tool: {}", buildToolAdapter.name());
+    }
+    
+    private BuildToolAdapter detectBuildTool(File projectRoot) {
+        Optional<BuildToolAdapter> detected = BuildToolDetector.detect(projectRoot);
+        if (detected.isPresent()) {
+            return detected.get();
+        }
+        
+        logger.warn("Could not detect build tool, defaulting to Maven");
+        return BuildToolDetector.getAdapter(com.utagent.build.BuildToolType.MAVEN);
     }
 
     public IterativeOptimizer setTargetCoverage(double targetCoverage) {
@@ -185,14 +202,14 @@ public class IterativeOptimizer {
         String packagePath = classInfo.packageName().replace('.', File.separatorChar);
         String testClassName = classInfo.className() + "Test.java";
         
-        Path testPath = projectRoot.toPath()
-            .resolve("src")
-            .resolve("test")
-            .resolve("java")
+        File testSourceDir = buildToolAdapter.getTestSourceDirectory(projectRoot);
+        if (testSourceDir == null) {
+            testSourceDir = new File(projectRoot, "src/test/java");
+        }
+        
+        return testSourceDir.toPath()
             .resolve(packagePath)
             .resolve(testClassName);
-        
-        return testPath;
     }
 
     private void appendTestsToFile(File testFile, String additionalTests) {
@@ -212,9 +229,10 @@ public class IterativeOptimizer {
 
     private CoverageReport runTestsAndGetCoverage() {
         try {
-            ProcessBuilder pb = new ProcessBuilder(
-                "mvn", "test", "jacoco:report", "-q"
-            );
+            String command = buildToolAdapter.getCoverageCommand();
+            String[] commandParts = parseCommand(command);
+            
+            ProcessBuilder pb = new ProcessBuilder(commandParts);
             pb.directory(projectRoot);
             pb.redirectErrorStream(true);
             
@@ -225,13 +243,13 @@ public class IterativeOptimizer {
                 logger.warn("Tests failed with exit code: {}", exitCode);
             }
             
-            File jacocoXml = new File(projectRoot, "target/site/jacoco/jacoco.xml");
-            if (jacocoXml.exists()) {
-                return coverageAnalyzer.analyzeFromJacocoXml(jacocoXml);
+            File coverageReport = buildToolAdapter.getCoverageReportFile(projectRoot);
+            if (coverageReport != null && coverageReport.exists()) {
+                return coverageAnalyzer.analyzeFromJacocoXml(coverageReport);
             }
             
-            File execFile = new File(projectRoot, "target/jacoco.exec");
-            if (execFile.exists()) {
+            File execFile = buildToolAdapter.getCoverageExecFile(projectRoot);
+            if (execFile != null && execFile.exists()) {
                 return coverageAnalyzer.analyzeCoverage(execFile);
             }
             
@@ -240,6 +258,14 @@ public class IterativeOptimizer {
             logger.error("Error running tests", e);
             return new CoverageReport();
         }
+    }
+    
+    private String[] parseCommand(String command) {
+        if (command.startsWith("./")) {
+            String[] parts = command.split("\\s+");
+            return parts;
+        }
+        return command.split("\\s+");
     }
 
     private List<CoverageInfo> getUncoveredInfo(CoverageReport report, ClassInfo classInfo) {
@@ -310,5 +336,9 @@ public class IterativeOptimizer {
 
     public int getMaxIterations() {
         return maxIterations;
+    }
+    
+    public String getBuildToolName() {
+        return buildToolAdapter.name();
     }
 }

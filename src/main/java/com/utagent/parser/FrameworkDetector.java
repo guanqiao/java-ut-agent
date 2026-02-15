@@ -61,13 +61,13 @@ public class FrameworkDetector {
     }
 
     public Set<FrameworkType> detectFrameworks(List<ClassInfo> classes) {
-        detectedFrameworks.clear();
+        Set<FrameworkType> allFrameworks = EnumSet.noneOf(FrameworkType.class);
         
         for (ClassInfo classInfo : classes) {
-            detectFrameworks(classInfo);
+            allFrameworks.addAll(detectFrameworks(classInfo));
         }
         
-        return EnumSet.copyOf(detectedFrameworks);
+        return allFrameworks;
     }
 
     private void detectFromAnnotations(List<AnnotationInfo> annotations) {
