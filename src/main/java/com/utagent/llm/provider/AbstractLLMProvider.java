@@ -113,6 +113,11 @@ public abstract class AbstractLLMProvider implements LLMProvider {
                     return ChatResponse.error("API request failed: " + response.code() + " - " + errorBody);
                 }
 
+                if (response.body() == null) {
+                    logger.error("LLM API response body is null");
+                    return ChatResponse.error("API response body is null");
+                }
+
                 String responseBody = response.body().string();
                 return parseResponse(responseBody);
             }

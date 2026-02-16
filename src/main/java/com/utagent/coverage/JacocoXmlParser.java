@@ -5,17 +5,22 @@ import com.utagent.model.CoverageReport;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 public class JacocoXmlParser {
 
-    public CoverageReport parse(File xmlFile) throws Exception {
+    public CoverageReport parse(File xmlFile) throws IOException, SAXException, ParserConfigurationException {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(false);
+        factory.setValidating(false);
         DocumentBuilder builder = factory.newDocumentBuilder();
         Document document = builder.parse(xmlFile);
         
@@ -129,6 +134,9 @@ public class JacocoXmlParser {
                 case "CLASS":
                     info.classMissed = missed;
                     info.classTotal = missed + covered;
+                    break;
+                default:
+                    // Ignore unknown counter types
                     break;
             }
         }

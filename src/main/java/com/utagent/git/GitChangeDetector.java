@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -201,7 +202,7 @@ public class GitChangeDetector {
         
         StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 output.append(line).append("\n");
@@ -224,7 +225,7 @@ public class GitChangeDetector {
         public ChangeInfo(File file, ChangeType type, List<Integer> changedLines) {
             this.file = file;
             this.type = type;
-            this.changedLines = changedLines;
+            this.changedLines = List.copyOf(changedLines != null ? changedLines : List.of());
         }
         
         public File getFile() {

@@ -196,7 +196,8 @@ public class MyBatisTestStrategy implements TestGenerationStrategy {
           .append(info.methodName()).append("\")\n");
         sb.append("    void test").append(capitalize(info.methodName()))
           .append("EdgeCase() {\n");
-        sb.append("        // TODO: Add edge case test for uncovered scenarios\n");
+        sb.append("        // Add edge case test for uncovered scenarios\n");
+        sb.append("        // Consider: null inputs, boundary values, error conditions\n");
         sb.append("    }\n");
         
         return sb.toString();

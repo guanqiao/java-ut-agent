@@ -99,6 +99,11 @@ public class LLMClient {
                     throw new RuntimeException("LLM API request failed: " + response.code());
                 }
 
+                if (response.body() == null) {
+                    logger.error("LLM API response body is null");
+                    throw new RuntimeException("LLM API response body is null");
+                }
+
                 String responseBody = response.body().string();
                 JsonNode responseJson = objectMapper.readTree(responseBody);
                 

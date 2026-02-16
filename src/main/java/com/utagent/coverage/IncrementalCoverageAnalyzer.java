@@ -143,8 +143,8 @@ public class IncrementalCoverageAnalyzer {
                 double overallCoverage,
                 String currentBranch,
                 String baseBranch) {
-            this.changedFiles = changedFiles;
-            this.coverageDiffs = coverageDiffs;
+            this.changedFiles = Set.copyOf(changedFiles != null ? changedFiles : Set.of());
+            this.coverageDiffs = Map.copyOf(coverageDiffs != null ? coverageDiffs : Map.of());
             this.newCodeCoverage = newCodeCoverage;
             this.overallCoverage = overallCoverage;
             this.currentBranch = currentBranch;
@@ -190,33 +190,61 @@ public class IncrementalCoverageAnalyzer {
         }
         
         public String getSummary() {
-            return String.format(
-                "Incremental Coverage Report\n" +
-                "==========================\n" +
-                "Branch: %s (vs %s)\n" +
-                "Changed Files: %d\n" +
-                "New Code Coverage: %.1f%%\n" +
-                "Overall Coverage: %.1f%%\n",
-                currentBranch, baseBranch,
-                changedFiles.size(),
-                newCodeCoverage * 100,
-                overallCoverage * 100
-            );
-        }
+                return String.format(
+                    "Incremental Coverage Report%n" +
+                    "==========================%n" +
+                    "Branch: %s (vs %s)%n" +
+                    "Changed Files: %d%n" +
+                    "New Code Coverage: %.1f%%%n" +
+                    "Overall Coverage: %.1f%%%n",
+                    currentBranch, baseBranch,
+                    changedFiles.size(),
+                    newCodeCoverage * 100,
+                    overallCoverage * 100
+                );
+            }
     }
     
-    public record FileCoverageDiff(
-        File file,
-        String className,
-        CoverageInfo coverageInfo,
-        List<Integer> changedLines
-    ) {
+    public static class FileCoverageDiff {
+        private final File file;
+        private final String className;
+        private final CoverageInfo coverageInfo;
+        private final List<Integer> changedLines;
+
+        public FileCoverageDiff(
+            File file,
+            String className,
+            CoverageInfo coverageInfo,
+            List<Integer> changedLines
+        ) {
+            this.file = file;
+            this.className = className;
+            this.coverageInfo = coverageInfo;
+            this.changedLines = List.copyOf(changedLines != null ? changedLines : List.of());
+        }
+
+        public File file() {
+            return file;
+        }
+
+        public String className() {
+            return className;
+        }
+
+        public CoverageInfo coverageInfo() {
+            return coverageInfo;
+        }
+
+        public List<Integer> changedLines() {
+            return changedLines;
+        }
+
         public double getCoverageRate() {
             return coverageInfo != null ? coverageInfo.getLineCoverageRate() : 0.0;
         }
         
         public int getChangedLineCount() {
-            return changedLines != null ? changedLines.size() : 0;
+            return changedLines.size();
         }
     }
 }

@@ -256,8 +256,9 @@ public abstract class EnhancedTestStrategy implements TestGenerationStrategy {
           .append(info.methodName()).append("\")\n");
         sb.append("    void test").append(capitalize(info.methodName()))
           .append("UncoveredLines() {\n");
-        sb.append("        // TODO: Add test for uncovered lines: ")
+        sb.append("        // Test uncovered lines at: ")
           .append(info.lineNumber()).append("\n");
+        sb.append("        // Add specific test case to cover these lines\n");
         sb.append("    }\n");
         
         return sb.toString();

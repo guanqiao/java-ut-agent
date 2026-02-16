@@ -133,8 +133,14 @@ public class CoverageAnalyzer {
         try {
             JacocoXmlParser parser = new JacocoXmlParser();
             return parser.parse(xmlReport);
-        } catch (Exception e) {
-            logger.error("Error parsing JaCoCo XML report", e);
+        } catch (IOException e) {
+            logger.error("IO error parsing JaCoCo XML report: {}", xmlReport.getAbsolutePath(), e);
+            return new CoverageReport();
+        } catch (org.xml.sax.SAXException e) {
+            logger.error("XML parsing error in JaCoCo report: {}", xmlReport.getAbsolutePath(), e);
+            return new CoverageReport();
+        } catch (javax.xml.parsers.ParserConfigurationException e) {
+            logger.error("XML parser configuration error: {}", xmlReport.getAbsolutePath(), e);
             return new CoverageReport();
         }
     }
@@ -215,15 +221,15 @@ public class CoverageAnalyzer {
 
     public String formatCoverageReport(CoverageReport report) {
         StringBuilder sb = new StringBuilder();
-        sb.append("=== Coverage Report ===\n");
-        sb.append(String.format("Line Coverage: %.2f%%\n", report.overallLineCoverage() * 100));
-        sb.append(String.format("Branch Coverage: %.2f%%\n", report.overallBranchCoverage() * 100));
-        sb.append(String.format("Instruction Coverage: %.2f%%\n", report.overallInstructionCoverage() * 100));
-        sb.append("\nClass Details:\n");
+        sb.append("=== Coverage Report ===%n");
+        sb.append(String.format("Line Coverage: %.2f%%%n", report.overallLineCoverage() * 100));
+        sb.append(String.format("Branch Coverage: %.2f%%%n", report.overallBranchCoverage() * 100));
+        sb.append(String.format("Instruction Coverage: %.2f%%%n", report.overallInstructionCoverage() * 100));
+        sb.append("%nClass Details:%n");
         
         for (CoverageInfo info : report.classCoverages()) {
             if (info.methodName().isEmpty()) {
-                sb.append(String.format("  %s: %.1f%% line, %.1f%% branch\n",
+                sb.append(String.format("  %s: %.1f%% line, %.1f%% branch%n",
                     info.className(),
                     info.getLineCoverageRate() * 100,
                     info.getBranchCoverageRate() * 100));

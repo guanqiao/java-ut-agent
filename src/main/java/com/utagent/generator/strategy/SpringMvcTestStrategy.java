@@ -167,10 +167,6 @@ public class SpringMvcTestStrategy implements TestGenerationStrategy {
         sb.append("    @DisplayName(\"").append(displayName).append("\")\n");
         sb.append("    void ").append(generateTestMethodName(method)).append("() {\n");
         
-        String params = method.parameters().stream()
-            .map(p -> generateMockParameter(p.name(), p.type()))
-            .collect(Collectors.joining(",\n            "));
-        
         if (!method.parameters().isEmpty()) {
             sb.append("        // Given\n");
             for (var param : method.parameters()) {
@@ -210,8 +206,9 @@ public class SpringMvcTestStrategy implements TestGenerationStrategy {
           .append(info.methodName()).append("\")\n");
         sb.append("    void test").append(capitalize(info.methodName()))
           .append("UncoveredLines() {\n");
-        sb.append("        // TODO: Add test for uncovered lines: ")
+        sb.append("        // Test uncovered lines at: ")
           .append(info.lineNumber()).append("\n");
+        sb.append("        // Add specific test case to cover these lines\n");
         sb.append("    }\n");
         
         return sb.toString();

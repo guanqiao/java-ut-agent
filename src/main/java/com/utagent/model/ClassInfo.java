@@ -1,6 +1,7 @@
 package com.utagent.model;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,5 +42,47 @@ public record ClassInfo(
 
     public boolean isMyBatisMapper() {
         return hasAnnotation("Mapper");
+    }
+
+    /**
+     * Returns an unmodifiable list of methods.
+     */
+    public List<MethodInfo> methods() {
+        return Collections.unmodifiableList(methods);
+    }
+
+    /**
+     * Returns an unmodifiable list of fields.
+     */
+    public List<FieldInfo> fields() {
+        return Collections.unmodifiableList(fields);
+    }
+
+    /**
+     * Returns an unmodifiable list of annotations.
+     */
+    public List<AnnotationInfo> annotations() {
+        return Collections.unmodifiableList(annotations);
+    }
+
+    /**
+     * Returns an unmodifiable list of imports.
+     */
+    public List<String> imports() {
+        return Collections.unmodifiableList(imports);
+    }
+
+    /**
+     * Returns an unmodifiable list of interfaces.
+     */
+    public List<String> interfaces() {
+        return Collections.unmodifiableList(interfaces);
+    }
+
+    /**
+     * Returns an unmodifiable map of metadata.
+     */
+    public Map<String, Object> metadata() {
+        return Collections.unmodifiableMap(metadata);
     }
 }

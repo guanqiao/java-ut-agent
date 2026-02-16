@@ -9,11 +9,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Optional;
 
@@ -75,7 +77,9 @@ public class ParseResultCache {
 
         if (isExpired(cacheFile, sourceFile)) {
             logger.debug("Cache expired for: {}", sourceFile.getName());
-            cacheFile.delete();
+            if (!cacheFile.delete()) {
+                logger.warn("Failed to delete expired cache file: {}", cacheFile.getAbsolutePath());
+            }
             return Optional.empty();
         }
 
@@ -85,7 +89,9 @@ public class ParseResultCache {
             return Optional.of(cachedResult.classInfo());
         } catch (IOException e) {
             logger.warn("Failed to read cache for {}: {}", sourceFile.getName(), e.getMessage());
-            cacheFile.delete();
+            if (!cacheFile.delete()) {
+                logger.warn("Failed to delete corrupted cache file: {}", cacheFile.getAbsolutePath());
+            }
             return Optional.empty();
         }
     }
@@ -130,7 +136,9 @@ public class ParseResultCache {
     public void invalidate(File sourceFile) {
         File cacheFile = getCacheFile(sourceFile);
         if (cacheFile.exists()) {
-            cacheFile.delete();
+            if (!cacheFile.delete()) {
+                logger.warn("Failed to invalidate cache file: {}", cacheFile.getAbsolutePath());
+            }
             logger.debug("Invalidated cache for: {}", sourceFile.getName());
         }
     }
@@ -227,7 +235,7 @@ public class ParseResultCache {
     }
 
     private String computeHash(String content) {
-        return computeHashBytes(content.getBytes());
+        return computeHashBytes(content.getBytes(StandardCharsets.UTF_8));
     }
 
     private String computeHashBytes(byte[] bytes) {
@@ -236,7 +244,7 @@ public class ParseResultCache {
             byte[] hash = digest.digest(bytes);
             return HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException e) {
-            return String.valueOf(bytes.hashCode());
+            return String.valueOf(Arrays.hashCode(bytes));
         }
     }
 
@@ -267,7 +275,9 @@ public class ParseResultCache {
                 break;
             }
             currentSize -= file.length();
-            file.delete();
+            if (!file.delete()) {
+                logger.warn("Failed to delete old cache file: {}", file.getAbsolutePath());
+            }
         }
     }
 
@@ -280,7 +290,9 @@ public class ParseResultCache {
                 }
             }
         }
-        file.delete();
+        if (!file.delete()) {
+            logger.warn("Failed to delete file: {}", file.getAbsolutePath());
+        }
     }
 
     /**

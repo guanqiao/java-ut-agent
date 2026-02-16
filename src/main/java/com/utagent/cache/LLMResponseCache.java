@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -77,7 +78,9 @@ public class LLMResponseCache {
 
         if (isExpired(cacheFile)) {
             logger.debug("LLM cache expired for request hash: {}", requestHash);
-            cacheFile.delete();
+            if (!cacheFile.delete()) {
+                logger.warn("Failed to delete expired cache file: {}", cacheFile.getAbsolutePath());
+            }
             return Optional.empty();
         }
 
@@ -87,7 +90,9 @@ public class LLMResponseCache {
             return Optional.of(cachedResponse.response());
         } catch (IOException e) {
             logger.warn("Failed to read LLM cache for request hash {}: {}", requestHash, e.getMessage());
-            cacheFile.delete();
+            if (!cacheFile.delete()) {
+                logger.warn("Failed to delete corrupted cache file: {}", cacheFile.getAbsolutePath());
+            }
             return Optional.empty();
         }
     }
@@ -175,7 +180,7 @@ public class LLMResponseCache {
     private String computeHash(String content) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(content.getBytes());
+            byte[] hash = digest.digest(content.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException e) {
             return String.valueOf(content.hashCode());
@@ -249,7 +254,9 @@ public class LLMResponseCache {
                 break;
             }
             currentSize -= file.length();
-            file.delete();
+            if (!file.delete()) {
+                logger.warn("Failed to delete old cache file: {}", file.getAbsolutePath());
+            }
         }
     }
 
@@ -262,7 +269,9 @@ public class LLMResponseCache {
                 }
             }
         }
-        file.delete();
+        if (!file.delete()) {
+            logger.warn("Failed to delete file: {}", file.getAbsolutePath());
+        }
     }
 
     /**

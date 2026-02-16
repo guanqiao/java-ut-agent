@@ -1,6 +1,7 @@
 package com.utagent.model;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public record MethodInfo(
@@ -30,7 +31,7 @@ public record MethodInfo(
         sb.append(name).append("(");
         for (int i = 0; i < parameters.size(); i++) {
             if (i > 0) sb.append(", ");
-            sb.append(parameters.get(i).type()).append(" ").append(parameters.get(i).name());
+            sb.append(parameters.get(i).type()).append(" " ).append(parameters.get(i).name());
         }
         sb.append(")");
         return sb.toString();
@@ -40,5 +41,26 @@ public record MethodInfo(
         return annotations.stream()
             .anyMatch(a -> a.name().equals(annotationName) || 
                           a.name().endsWith("." + annotationName));
+    }
+
+    /**
+     * Returns an unmodifiable list of parameters.
+     */
+    public List<ParameterInfo> parameters() {
+        return Collections.unmodifiableList(parameters);
+    }
+
+    /**
+     * Returns an unmodifiable list of annotations.
+     */
+    public List<AnnotationInfo> annotations() {
+        return Collections.unmodifiableList(annotations);
+    }
+
+    /**
+     * Returns an unmodifiable list of thrown exceptions.
+     */
+    public List<String> thrownExceptions() {
+        return Collections.unmodifiableList(thrownExceptions);
     }
 }

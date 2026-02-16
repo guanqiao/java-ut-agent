@@ -209,8 +209,8 @@ public class SpringBootTestStrategy implements TestGenerationStrategy {
         sb.append("    @DisplayName(\"Should handle ").append(httpMethod)
           .append(" request to ").append(path).append("\")\n");
         sb.append("    void should").append(capitalize(method.name())).append("() throws Exception {\n");
-        sb.append("        // Given\n");
-        sb.append("        // TODO: Setup mock behavior\n\n");
+        sb.append("        // Given - Setup mock behavior for dependencies\n");
+        sb.append("        // when(mockDependency.method()).thenReturn(expectedValue);\n\n");
         sb.append("        // When & Then\n");
         sb.append("        mockMvc.perform(").append(httpMethod).append("(\"")
           .append(path).append("\"))\n");
@@ -273,8 +273,9 @@ public class SpringBootTestStrategy implements TestGenerationStrategy {
         sb.append("    @DisplayName(\"Should ").append(method.name())
           .append(" successfully\")\n");
         sb.append("    void should").append(capitalize(method.name())).append("Successfully() {\n");
-        sb.append("        // Given\n");
-        sb.append("        // TODO: Setup test data\n\n");
+        sb.append("        // Given - Prepare test data and mock behavior\n");
+        sb.append("        // var input = new InputType();\n");
+        sb.append("        // when(mockDependency.method()).thenReturn(expectedValue);\n\n");
         sb.append("        // When\n");
         if (!method.returnType().equals("void")) {
             sb.append("        var result = ");
@@ -327,8 +328,9 @@ public class SpringBootTestStrategy implements TestGenerationStrategy {
         sb.append("    @DisplayName(\"Should ").append(method.name())
           .append(" successfully\")\n");
         sb.append("    void should").append(capitalize(method.name())).append("Successfully() {\n");
-        sb.append("        // Given\n");
-        sb.append("        // TODO: Setup test data\n\n");
+        sb.append("        // Given - Prepare test entity\n");
+        sb.append("        // var entity = new Entity();\n");
+        sb.append("        // entityManager.persist(entity);\n\n");
         sb.append("        // When\n");
         if (!method.returnType().equals("void")) {
             sb.append("        var result = ");

@@ -110,23 +110,23 @@ public class OptimizationResult {
 
     public String getSummary() {
         StringBuilder sb = new StringBuilder();
-        sb.append("=== Optimization Result ===\n");
-        sb.append("Source File: ").append(sourceFile != null ? sourceFile.getName() : "N/A").append("\n");
-        sb.append("Class: ").append(classInfo != null ? classInfo.className() : "N/A").append("\n");
-        sb.append("Generated Test: ").append(generatedTestFile != null ? generatedTestFile.getName() : "N/A").append("\n");
-        sb.append("Success: ").append(success ? "Yes" : "No").append("\n");
-        sb.append("Iterations: ").append(iterations).append("\n");
+        sb.append("=== Optimization Result ===%n");
+        sb.append("Source File: ").append(sourceFile != null ? sourceFile.getName() : "N/A").append("%n");
+        sb.append("Class: ").append(classInfo != null ? classInfo.className() : "N/A").append("%n");
+        sb.append("Generated Test: ").append(generatedTestFile != null ? generatedTestFile.getName() : "N/A").append("%n");
+        sb.append("Success: ").append(success ? "Yes" : "No").append("%n");
+        sb.append("Iterations: ").append(iterations).append("%n");
         
         if (finalCoverage != null) {
-            sb.append("Final Coverage:\n");
-            sb.append(String.format("  Line: %.1f%%\n", finalCoverage.overallLineCoverage() * 100));
-            sb.append(String.format("  Branch: %.1f%%\n", finalCoverage.overallBranchCoverage() * 100));
+            sb.append("Final Coverage:%n");
+            sb.append(String.format("  Line: %.1f%%%n", finalCoverage.overallLineCoverage() * 100));
+            sb.append(String.format("  Branch: %.1f%%%n", finalCoverage.overallBranchCoverage() * 100));
         }
         
-        sb.append(String.format("Coverage Improvement: %.1f%%\n", getCoverageImprovement() * 100));
+        sb.append(String.format("Coverage Improvement: %.1f%%%n", getCoverageImprovement() * 100));
         
         if (errorMessage != null) {
-            sb.append("Error: ").append(errorMessage).append("\n");
+            sb.append("Error: ").append(errorMessage).append("%n");
         }
         
         return sb.toString();

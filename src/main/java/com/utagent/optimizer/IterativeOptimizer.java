@@ -209,12 +209,13 @@ public class IterativeOptimizer implements TestOptimizer {
     private File writeTestFile(ClassInfo classInfo, String testCode) {
         try {
             Path testPath = determineTestPath(classInfo);
+            if (testPath == null) {
+                throw new GenerationException("Failed to determine test path for class: " + classInfo.className());
+            }
             Files.createDirectories(testPath.getParent());
 
             File testFile = testPath.toFile();
-            try (FileWriter writer = new FileWriter(testFile)) {
-                writer.write(testCode);
-            }
+            Files.writeString(testFile.toPath(), testCode, java.nio.charset.StandardCharsets.UTF_8);
 
             logger.info("Generated test file: {}", testFile.getAbsolutePath());
             return testFile;
@@ -262,10 +263,14 @@ public class IterativeOptimizer implements TestOptimizer {
             pb.redirectErrorStream(true);
             
             Process process = pb.start();
-            int exitCode = process.waitFor();
-            
-            if (exitCode != 0) {
-                logger.warn("Tests failed with exit code: {}", exitCode);
+            try {
+                int exitCode = process.waitFor();
+                
+                if (exitCode != 0) {
+                    logger.warn("Tests failed with exit code: {}", exitCode);
+                }
+            } finally {
+                closeProcessStreams(process);
             }
             
             File coverageReport = buildToolAdapter.getCoverageReportFile(projectRoot);
@@ -279,9 +284,37 @@ public class IterativeOptimizer implements TestOptimizer {
             }
             
             return new CoverageReport();
-        } catch (Exception e) {
-            logger.error("Error running tests", e);
+        } catch (IOException e) {
+            logger.error("IO error running tests", e);
             return new CoverageReport();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("Test execution interrupted", e);
+            return new CoverageReport();
+        }
+    }
+    
+    private void closeProcessStreams(Process process) {
+        try {
+            if (process.getInputStream() != null) {
+                process.getInputStream().close();
+            }
+        } catch (IOException e) {
+            logger.debug("Failed to close process input stream", e);
+        }
+        try {
+            if (process.getOutputStream() != null) {
+                process.getOutputStream().close();
+            }
+        } catch (IOException e) {
+            logger.debug("Failed to close process output stream", e);
+        }
+        try {
+            if (process.getErrorStream() != null) {
+                process.getErrorStream().close();
+            }
+        } catch (IOException e) {
+            logger.debug("Failed to close process error stream", e);
         }
     }
     
