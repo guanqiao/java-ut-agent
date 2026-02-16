@@ -1,64 +1,82 @@
 package com.utagent.maintenance;
 
 public record TestFailure(
-    FailureType type,
-    FailureSeverity severity,
     String testClass,
     String testMethod,
-    int lineNumber,
-    String message,
-    String stackTrace
+    String errorMessage,
+    String stackTrace,
+    FailureType type,
+    int severity
 ) {
-    public static Builder builder() {
-        return new Builder();
+    public TestFailure(String testClass, String testMethod, String errorMessage, String stackTrace) {
+        this(testClass, testMethod, errorMessage, stackTrace, inferType(errorMessage), inferSeverity(errorMessage));
     }
 
-    public static final class Builder {
-        private FailureType type;
-        private FailureSeverity severity;
-        private String testClass;
-        private String testMethod;
-        private int lineNumber;
-        private String message;
-        private String stackTrace;
+    public String message() {
+        return errorMessage;
+    }
 
-        public Builder type(FailureType type) {
-            this.type = type;
-            return this;
-        }
+    public boolean isAssertionFailure() {
+        return errorMessage != null && 
+            (errorMessage.contains("AssertionFailed") || 
+             errorMessage.contains("AssertionError") ||
+             errorMessage.contains("expected:"));
+    }
 
-        public Builder severity(FailureSeverity severity) {
-            this.severity = severity;
-            return this;
-        }
+    public boolean isNullPointerException() {
+        return errorMessage != null && errorMessage.contains("NullPointerException");
+    }
 
-        public Builder testClass(String testClass) {
-            this.testClass = testClass;
-            return this;
-        }
+    public boolean isMockException() {
+        return errorMessage != null && 
+            (errorMessage.contains("Mockito") || 
+             errorMessage.contains("mock") ||
+             errorMessage.contains("stubbing"));
+    }
 
-        public Builder testMethod(String testMethod) {
-            this.testMethod = testMethod;
-            return this;
-        }
+    public boolean isTimeoutException() {
+        return errorMessage != null && errorMessage.contains("Timeout");
+    }
 
-        public Builder lineNumber(int lineNumber) {
-            this.lineNumber = lineNumber;
-            return this;
+    private static FailureType inferType(String errorMessage) {
+        if (errorMessage == null) {
+            return FailureType.UNKNOWN;
         }
+        if (errorMessage.contains("AssertionFailed") || 
+            errorMessage.contains("AssertionError") ||
+            errorMessage.contains("expected:")) {
+            return FailureType.ASSERTION_FAILURE;
+        }
+        if (errorMessage.contains("NullPointerException")) {
+            return FailureType.NULL_POINTER;
+        }
+        if (errorMessage.contains("Mockito") || 
+            errorMessage.contains("mock") ||
+            errorMessage.contains("stubbing")) {
+            return FailureType.MOCK_CONFIGURATION;
+        }
+        if (errorMessage.contains("Timeout")) {
+            return FailureType.TIMEOUT;
+        }
+        if (errorMessage.contains("Compilation") || errorMessage.contains("cannot find symbol")) {
+            return FailureType.COMPILATION_ERROR;
+        }
+        return FailureType.RUNTIME_ERROR;
+    }
 
-        public Builder message(String message) {
-            this.message = message;
-            return this;
+    private static int inferSeverity(String errorMessage) {
+        if (errorMessage == null) {
+            return 0;
         }
-
-        public Builder stackTrace(String stackTrace) {
-            this.stackTrace = stackTrace;
-            return this;
+        if (errorMessage.contains("OutOfMemory") || errorMessage.contains("StackOverflow")) {
+            return 5;
         }
-
-        public TestFailure build() {
-            return new TestFailure(type, severity, testClass, testMethod, lineNumber, message, stackTrace);
+        if (errorMessage.contains("NullPointerException")) {
+            return 3;
         }
+        if (errorMessage.contains("AssertionFailed")) {
+            return 1;
+        }
+        return 2;
     }
 }

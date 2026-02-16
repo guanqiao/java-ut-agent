@@ -109,7 +109,7 @@ public class TestFailureDetector {
 
     public List<TestFailure> prioritizeFailures(List<TestFailure> failures) {
         List<TestFailure> sorted = new ArrayList<>(failures);
-        sorted.sort(Comparator.comparingInt((TestFailure f) -> f.severity().level()).reversed());
+        sorted.sort(Comparator.comparingInt((TestFailure f) -> f.severity()).reversed());
         return sorted;
     }
 
