@@ -68,6 +68,10 @@ public abstract class AbstractLLMProvider implements LLMProvider {
     public TokenUsage getLastTokenUsage() {
         return lastTokenUsage.get();
     }
+    
+    public String getModel() {
+        return defaultModel;
+    }
 
     @Override
     public boolean supportsStreaming() {

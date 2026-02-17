@@ -13,6 +13,9 @@ import com.utagent.llm.Message;
 import com.utagent.llm.TokenUsage;
 import com.utagent.model.ClassInfo;
 import com.utagent.model.CoverageInfo;
+import com.utagent.model.MethodInfo;
+import com.utagent.model.ParsedTestFile;
+import com.utagent.monitoring.LLMCallMonitor;
 import com.utagent.parser.FrameworkDetector;
 import com.utagent.parser.FrameworkType;
 import com.utagent.util.ApiKeyResolver;
@@ -20,10 +23,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 public class TestGenerator {
 
@@ -135,14 +140,32 @@ public class TestGenerator {
             .userMessage(userPrompt)
             .build();
         
-        ChatResponse response = llmProvider.chatWithRetry(request, 3);
+        LLMCallMonitor monitor = LLMCallMonitor.getInstance();
+        LLMCallMonitor.CallRecord callRecord = monitor.startCall(
+            llmProvider.name(),
+            llmProvider instanceof com.utagent.llm.provider.AbstractLLMProvider ? 
+                ((com.utagent.llm.provider.AbstractLLMProvider) llmProvider).getModel() : "unknown",
+            "test_generation"
+        );
         
-        if (response.isSuccess()) {
-            updateTokenUsage(response.tokenUsage());
-            return extractCodeFromResponse(response.content());
-        } else {
-            logger.warn("AI generation failed: {}, falling back to strategy-based generation", 
-                response.errorMessage());
+        try {
+            ChatResponse response = llmProvider.chatWithRetry(request, 3);
+            
+            if (response.isSuccess()) {
+                updateTokenUsage(response.tokenUsage());
+                monitor.endCall(callRecord, response.tokenUsage(), 
+                    truncatePreview(response.content(), 100));
+                return extractCodeFromResponse(response.content());
+            } else {
+                monitor.failCall(callRecord, response.errorMessage());
+                logger.warn("AI generation failed: {}, falling back to strategy-based generation", 
+                    response.errorMessage());
+                return generateWithStrategy(classInfo, frameworks);
+            }
+        } catch (Exception e) {
+            monitor.failCall(callRecord, e.getMessage());
+            logger.warn("AI generation exception: {}, falling back to strategy-based generation", 
+                e.getMessage());
             return generateWithStrategy(classInfo, frameworks);
         }
     }
@@ -182,14 +205,32 @@ public class TestGenerator {
             .userMessage(userPrompt)
             .build();
         
-        ChatResponse response = llmProvider.chatWithRetry(request, 3);
+        LLMCallMonitor monitor = LLMCallMonitor.getInstance();
+        LLMCallMonitor.CallRecord callRecord = monitor.startCall(
+            llmProvider.name(),
+            llmProvider instanceof com.utagent.llm.provider.AbstractLLMProvider ? 
+                ((com.utagent.llm.provider.AbstractLLMProvider) llmProvider).getModel() : "unknown",
+            "coverage_improvement"
+        );
         
-        if (response.isSuccess()) {
-            updateTokenUsage(response.tokenUsage());
-            return extractCodeFromResponse(response.content());
-        } else {
-            logger.warn("AI generation failed: {}, falling back to strategy-based generation", 
-                response.errorMessage());
+        try {
+            ChatResponse response = llmProvider.chatWithRetry(request, 3);
+            
+            if (response.isSuccess()) {
+                updateTokenUsage(response.tokenUsage());
+                monitor.endCall(callRecord, response.tokenUsage(), 
+                    truncatePreview(response.content(), 100));
+                return extractCodeFromResponse(response.content());
+            } else {
+                monitor.failCall(callRecord, response.errorMessage());
+                logger.warn("AI generation failed: {}, falling back to strategy-based generation", 
+                    response.errorMessage());
+                return generateAdditionalTestsWithStrategy(classInfo, coverageInfo);
+            }
+        } catch (Exception e) {
+            monitor.failCall(callRecord, e.getMessage());
+            logger.warn("AI generation exception: {}, falling back to strategy-based generation", 
+                e.getMessage());
             return generateAdditionalTestsWithStrategy(classInfo, coverageInfo);
         }
     }
@@ -229,6 +270,12 @@ public class TestGenerator {
             totalTokenUsage.updateAndGet(current -> current.add(usage));
         }
     }
+    
+    private String truncatePreview(String text, int maxLength) {
+        if (text == null) return "";
+        if (text.length() <= maxLength) return text;
+        return text.substring(0, maxLength) + "...";
+    }
 
     public TokenUsage getTotalTokenUsage() {
         return totalTokenUsage.get();
@@ -240,5 +287,176 @@ public class TestGenerator {
     
     public String getProviderName() {
         return llmProvider != null ? llmProvider.name() : "Template";
+    }
+
+    public String generateIncrementalTests(ClassInfo classInfo, 
+                                           ParsedTestFile existingTests,
+                                           List<CoverageInfo> uncoveredInfo) {
+        Set<FrameworkType> frameworks = frameworkDetector.detectFrameworks(classInfo);
+        
+        Set<String> testedMethods = existingTests != null ? 
+            existingTests.testedMethods() : new HashSet<>();
+        
+        List<MethodInfo> untestedMethods = classInfo.methods().stream()
+            .filter(m -> !m.isPrivate() && !m.isAbstract())
+            .filter(m -> !isMethodTested(m.name(), testedMethods))
+            .collect(Collectors.toList());
+        
+        if (untestedMethods.isEmpty() && (uncoveredInfo == null || uncoveredInfo.isEmpty())) {
+            logger.info("All methods already have tests for {}", classInfo.className());
+            return "";
+        }
+        
+        if (useAI && llmProvider != null) {
+            return generateIncrementalWithAI(classInfo, frameworks, existingTests, 
+                                            untestedMethods, uncoveredInfo);
+        } else {
+            return generateIncrementalWithStrategy(classInfo, frameworks, existingTests, 
+                                                   untestedMethods, uncoveredInfo);
+        }
+    }
+
+    private boolean isMethodTested(String methodName, Set<String> testedMethods) {
+        String lowerName = methodName.toLowerCase();
+        for (String tested : testedMethods) {
+            if (tested != null && tested.toLowerCase().equals(lowerName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String generateIncrementalWithAI(ClassInfo classInfo, 
+                                             Set<FrameworkType> frameworks,
+                                             ParsedTestFile existingTests,
+                                             List<MethodInfo> untestedMethods,
+                                             List<CoverageInfo> uncoveredInfo) {
+        logger.info("Generating incremental tests for {} using AI", classInfo.className());
+        
+        String systemPrompt = promptBuilder.buildSystemPrompt();
+        String userPrompt = promptBuilder.buildIncrementalTestPrompt(
+            classInfo, frameworks, existingTests, untestedMethods, uncoveredInfo);
+        
+        ChatRequest request = ChatRequest.builder()
+            .systemPrompt(systemPrompt)
+            .userMessage(userPrompt)
+            .build();
+        
+        LLMCallMonitor monitor = LLMCallMonitor.getInstance();
+        LLMCallMonitor.CallRecord callRecord = monitor.startCall(
+            llmProvider.name(),
+            llmProvider instanceof com.utagent.llm.provider.AbstractLLMProvider ? 
+                ((com.utagent.llm.provider.AbstractLLMProvider) llmProvider).getModel() : "unknown",
+            "incremental_test_generation"
+        );
+        
+        try {
+            ChatResponse response = llmProvider.chatWithRetry(request, 3);
+            
+            if (response.isSuccess()) {
+                updateTokenUsage(response.tokenUsage());
+                monitor.endCall(callRecord, response.tokenUsage(), 
+                    truncatePreview(response.content(), 100));
+                return extractCodeFromResponse(response.content());
+            } else {
+                monitor.failCall(callRecord, response.errorMessage());
+                logger.warn("AI incremental generation failed: {}, falling back to strategy", 
+                    response.errorMessage());
+                return generateIncrementalWithStrategy(classInfo, frameworks, existingTests, 
+                                                       untestedMethods, uncoveredInfo);
+            }
+        } catch (Exception e) {
+            monitor.failCall(callRecord, e.getMessage());
+            logger.warn("AI incremental generation exception: {}, falling back to strategy", 
+                e.getMessage());
+            return generateIncrementalWithStrategy(classInfo, frameworks, existingTests, 
+                                                   untestedMethods, uncoveredInfo);
+        }
+    }
+
+    private String generateIncrementalWithStrategy(ClassInfo classInfo,
+                                                    Set<FrameworkType> frameworks,
+                                                    ParsedTestFile existingTests,
+                                                    List<MethodInfo> untestedMethods,
+                                                    List<CoverageInfo> uncoveredInfo) {
+        logger.info("Generating incremental tests for {} using strategy pattern", 
+                   classInfo.className());
+        
+        TestGenerationStrategy strategy = selectStrategy(frameworks);
+        
+        if (uncoveredInfo != null && !uncoveredInfo.isEmpty()) {
+            return strategy.generateAdditionalTests(classInfo, uncoveredInfo);
+        }
+        
+        return generateTestsForUntestedMethods(classInfo, untestedMethods, strategy);
+    }
+
+    private String generateTestsForUntestedMethods(ClassInfo classInfo, 
+                                                    List<MethodInfo> untestedMethods,
+                                                    TestGenerationStrategy strategy) {
+        StringBuilder tests = new StringBuilder();
+        
+        for (MethodInfo method : untestedMethods) {
+            String testCode = strategy.generateTestMethod(classInfo, method.name(), List.of());
+            if (testCode != null && !testCode.isEmpty()) {
+                tests.append(testCode).append("\n\n");
+            }
+        }
+        
+        return tests.toString().trim();
+    }
+
+    public String generateAdditionalTestsAvoidingDuplicates(ClassInfo classInfo,
+                                                             List<CoverageInfo> coverageInfo,
+                                                             Set<String> existingTestMethodNames) {
+        if (useAI && llmProvider != null) {
+            return generateAdditionalTestsAvoidingDuplicatesWithAI(classInfo, coverageInfo, 
+                                                                   existingTestMethodNames);
+        } else {
+            return generateAdditionalTestsWithStrategy(classInfo, coverageInfo);
+        }
+    }
+
+    private String generateAdditionalTestsAvoidingDuplicatesWithAI(ClassInfo classInfo,
+                                                                     List<CoverageInfo> coverageInfo,
+                                                                     Set<String> existingTestMethodNames) {
+        logger.info("Generating additional tests for {} avoiding duplicates using AI", 
+                   classInfo.className());
+        
+        String systemPrompt = promptBuilder.buildSystemPrompt();
+        String userPrompt = promptBuilder.buildIncrementalCoveragePrompt(
+            classInfo, coverageInfo, existingTestMethodNames);
+        
+        ChatRequest request = ChatRequest.builder()
+            .systemPrompt(systemPrompt)
+            .userMessage(userPrompt)
+            .build();
+        
+        LLMCallMonitor monitor = LLMCallMonitor.getInstance();
+        LLMCallMonitor.CallRecord callRecord = monitor.startCall(
+            llmProvider.name(),
+            llmProvider instanceof com.utagent.llm.provider.AbstractLLMProvider ? 
+                ((com.utagent.llm.provider.AbstractLLMProvider) llmProvider).getModel() : "unknown",
+            "coverage_improvement_incremental"
+        );
+        
+        try {
+            ChatResponse response = llmProvider.chatWithRetry(request, 3);
+            
+            if (response.isSuccess()) {
+                updateTokenUsage(response.tokenUsage());
+                monitor.endCall(callRecord, response.tokenUsage(), 
+                    truncatePreview(response.content(), 100));
+                return extractCodeFromResponse(response.content());
+            } else {
+                monitor.failCall(callRecord, response.errorMessage());
+                logger.warn("AI generation failed: {}", response.errorMessage());
+                return "";
+            }
+        } catch (Exception e) {
+            monitor.failCall(callRecord, e.getMessage());
+            logger.warn("AI generation exception: {}", e.getMessage());
+            return "";
+        }
     }
 }

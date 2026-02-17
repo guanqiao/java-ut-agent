@@ -17,6 +17,10 @@ public class ProgressBar {
     private int spinnerIndex = 0;
     private boolean colorEnabled;
     
+    private String currentPhase = "";
+    private int totalItems = 0;
+    private int completedItems = 0;
+    
     public ProgressBar() {
         this(System.out, 40, true);
     }
@@ -30,6 +34,22 @@ public class ProgressBar {
     
     public void setColorEnabled(boolean enabled) {
         this.colorEnabled = enabled;
+    }
+    
+    public void setPhase(String phase) {
+        this.currentPhase = phase;
+    }
+    
+    public void setTotalItems(int total) {
+        this.totalItems = total;
+    }
+    
+    public void setCompletedItems(int completed) {
+        this.completedItems = completed;
+    }
+    
+    public void incrementCompletedItems() {
+        this.completedItems++;
     }
     
     public void update(int current, int total, String message) {
@@ -58,6 +78,14 @@ public class ProgressBar {
         line.append(bar);
         line.append(" ");
         
+        if (currentPhase != null && !currentPhase.isEmpty()) {
+            String phaseText = "[" + currentPhase + "] ";
+            if (colorEnabled) {
+                phaseText = AnsiColor.colorize(phaseText, AnsiColor.CYAN);
+            }
+            line.append(phaseText);
+        }
+        
         if (message != null && !message.isEmpty()) {
             String truncatedMessage = truncateMessage(message, 30);
             if (colorEnabled) {
@@ -66,8 +94,23 @@ public class ProgressBar {
             line.append(truncatedMessage);
         }
         
+        if (totalItems > 0) {
+            line.append(" ").append(completedItems).append("/").append(totalItems);
+        }
+        
         line.append("\r");
         out.print(line);
+    }
+    
+    public void updateWithPhase(double percentage, String phase, String message) {
+        this.currentPhase = phase;
+        update(percentage, message);
+    }
+    
+    public void updateWithStats(double percentage, String message, int completed, int total) {
+        this.completedItems = completed;
+        this.totalItems = total;
+        update(percentage, message);
     }
     
     public void complete(String message) {

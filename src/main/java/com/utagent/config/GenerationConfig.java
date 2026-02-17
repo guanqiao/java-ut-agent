@@ -6,7 +6,9 @@ public record GenerationConfig(
     Boolean includeEdgeCases,
     Boolean includeParameterizedTests,
     String testDataStrategy,
-    Boolean verifyMocks
+    Boolean verifyMocks,
+    Boolean incremental,
+    Boolean preserveExistingTests
 ) {
     public static final String STRATEGY_AI = "ai";
     public static final String STRATEGY_TEMPLATE = "template";
@@ -21,6 +23,8 @@ public record GenerationConfig(
             true,
             false,
             TEST_DATA_SIMPLE,
+            true,
+            true,
             true
         );
     }
@@ -49,6 +53,14 @@ public record GenerationConfig(
         return verifyMocks != null ? verifyMocks : true;
     }
     
+    public boolean getIncrementalOrDefault() {
+        return incremental != null ? incremental : true;
+    }
+    
+    public boolean getPreserveExistingTestsOrDefault() {
+        return preserveExistingTests != null ? preserveExistingTests : true;
+    }
+    
     public boolean isAIStrategy() {
         return STRATEGY_AI.equalsIgnoreCase(getStrategyOrDefault());
     }
@@ -64,6 +76,8 @@ public record GenerationConfig(
         private Boolean includeParameterizedTests;
         private String testDataStrategy;
         private Boolean verifyMocks;
+        private Boolean incremental;
+        private Boolean preserveExistingTests;
         
         public Builder strategy(String strategy) {
             this.strategy = strategy;
@@ -95,10 +109,21 @@ public record GenerationConfig(
             return this;
         }
         
+        public Builder incremental(Boolean incremental) {
+            this.incremental = incremental;
+            return this;
+        }
+        
+        public Builder preserveExistingTests(Boolean preserveExistingTests) {
+            this.preserveExistingTests = preserveExistingTests;
+            return this;
+        }
+        
         public GenerationConfig build() {
             return new GenerationConfig(
                 strategy, includeNegativeTests, includeEdgeCases,
-                includeParameterizedTests, testDataStrategy, verifyMocks
+                includeParameterizedTests, testDataStrategy, verifyMocks,
+                incremental, preserveExistingTests
             );
         }
     }

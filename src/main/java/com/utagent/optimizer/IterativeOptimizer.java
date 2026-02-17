@@ -7,10 +7,17 @@ import com.utagent.exception.GenerationException;
 import com.utagent.exception.ParseException;
 import com.utagent.exception.UTAgentException;
 import com.utagent.generator.TestGenerator;
+import com.utagent.llm.TokenUsage;
 import com.utagent.model.ClassInfo;
 import com.utagent.model.CoverageInfo;
 import com.utagent.model.CoverageReport;
+import com.utagent.model.ParsedTestFile;
+import com.utagent.model.ParsedTestMethod;
+import com.utagent.monitoring.GenerationPhase;
+import com.utagent.monitoring.GenerationProgress;
+import com.utagent.monitoring.LLMCallMonitor;
 import com.utagent.parser.JavaCodeParser;
+import com.utagent.parser.TestFileParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,8 +27,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -43,6 +52,10 @@ public class IterativeOptimizer implements TestOptimizer {
 
     private Consumer<String> progressListener;
     private Consumer<CoverageReport> coverageListener;
+    private Consumer<GenerationProgress> progressUpdateListener;
+    private GenerationProgress generationProgress;
+    private boolean incrementalMode = true;
+    private final TestFileParser testFileParser;
 
     /**
      * 全依赖注入构造函数，便于测试和灵活配置
@@ -62,6 +75,7 @@ public class IterativeOptimizer implements TestOptimizer {
         this.maxIterations = 10;
         this.currentIteration.set(0);
         this.verbose = true;
+        this.testFileParser = new TestFileParser();
 
         logger.info("Detected build tool: {}", this.buildToolAdapter.name());
     }
@@ -116,42 +130,139 @@ public class IterativeOptimizer implements TestOptimizer {
         this.coverageListener = coverageListener;
         return this;
     }
+    
+    public TestOptimizer setProgressUpdateListener(Consumer<GenerationProgress> listener) {
+        this.progressUpdateListener = listener;
+        return this;
+    }
+    
+    public TestOptimizer setIncrementalMode(boolean incrementalMode) {
+        this.incrementalMode = incrementalMode;
+        return this;
+    }
+    
+    public boolean isIncrementalMode() {
+        return incrementalMode;
+    }
+    
+    public GenerationProgress getGenerationProgress() {
+        return generationProgress;
+    }
 
     public OptimizationResult optimize(File sourceFile) {
         return optimize(sourceFile, null);
     }
 
     public OptimizationResult optimize(File sourceFile, File existingTestFile) {
-        logger.info("Starting optimization for: {}", sourceFile.getAbsolutePath());
-        notifyProgress("Starting optimization for: " + sourceFile.getName());
+        if (incrementalMode && existingTestFile == null) {
+            existingTestFile = findExistingTestFile(sourceFile);
+        }
+        
+        if (incrementalMode && existingTestFile != null && existingTestFile.exists()) {
+            return optimizeIncremental(sourceFile, existingTestFile);
+        }
+        
+        return optimizeFull(sourceFile);
+    }
+
+    private File findExistingTestFile(File sourceFile) {
+        File testSourceDir = buildToolAdapter.getTestSourceDirectory(projectRoot);
+        if (testSourceDir == null) {
+            testSourceDir = new File(projectRoot, "src/test/java");
+        }
+        
+        Optional<File> existingTest = testFileParser.findExistingTestFile(sourceFile, testSourceDir);
+        return existingTest.orElse(null);
+    }
+
+    public OptimizationResult optimizeIncremental(File sourceFile, File existingTestFile) {
+        logger.info("Starting incremental optimization for: {}", sourceFile.getAbsolutePath());
+        
+        generationProgress = new GenerationProgress(
+            sourceFile.getAbsolutePath(),
+            sourceFile.getName()
+        );
+        generationProgress.setMaxIterations(maxIterations);
+        generationProgress.setTargetCoverage(targetCoverage);
+        
+        generationProgress.setPhase(GenerationPhase.PARSING, "Parsing source and existing test files");
+        notifyProgressUpdate();
+        
+        notifyProgress("Starting incremental optimization for: " + sourceFile.getName());
         
         OptimizationResult result = new OptimizationResult();
         result.setSourceFile(sourceFile);
+        result.setExistingTestFile(existingTestFile);
         
         var parsedClass = codeParser.parseFile(sourceFile);
         if (parsedClass.isEmpty()) {
             logger.error("Failed to parse source file: {}", sourceFile.getAbsolutePath());
             result.setSuccess(false);
             result.setErrorMessage("Failed to parse source file");
+            generationProgress.setError(new GenerationException("Failed to parse source file"));
+            notifyProgressUpdate();
             return result;
         }
         
         ClassInfo classInfo = parsedClass.get();
         result.setClassInfo(classInfo);
         
-        String testCode = testGenerator.generateTestClass(classInfo);
-        File testFile = writeTestFile(classInfo, testCode);
+        Optional<ParsedTestFile> parsedTestOpt = testFileParser.parse(existingTestFile);
+        if (parsedTestOpt.isEmpty()) {
+            logger.warn("Failed to parse existing test file, falling back to full generation");
+            return optimizeFull(sourceFile);
+        }
+        
+        ParsedTestFile existingTests = parsedTestOpt.get();
+        result.setParsedTestFile(existingTests);
+        
+        logger.info("Found {} existing test methods in {}", 
+                   existingTests.getTestMethodCount(), existingTestFile.getName());
+        
+        generationProgress.setPhase(GenerationPhase.TEST_GENERATION, "Generating incremental tests");
+        notifyProgressUpdate();
+        
+        String additionalTests = testGenerator.generateIncrementalTests(classInfo, existingTests, List.of());
+        
+        TokenUsage tokenUsage = testGenerator.getTotalTokenUsage();
+        generationProgress.addTokenUsage(tokenUsage);
+        generationProgress.incrementLlmCalls();
+        
+        File testFile;
+        if (additionalTests != null && !additionalTests.trim().isEmpty()) {
+            generationProgress.setPhase(GenerationPhase.WRITING_TEST, "Merging test file");
+            notifyProgressUpdate();
+            
+            testFile = mergeTestFile(existingTestFile, additionalTests);
+            result.setAddedTestMethods(extractMethodNames(additionalTests));
+            notifyProgress("Merged additional tests into existing test file");
+        } else {
+            testFile = existingTestFile;
+            notifyProgress("No additional tests needed - existing tests are sufficient");
+        }
+        
         result.setGeneratedTestFile(testFile);
         
-        notifyProgress("Generated initial test file: " + testFile.getName());
+        generationProgress.setPhase(GenerationPhase.RUNNING_TESTS, "Running tests");
+        notifyProgressUpdate();
         
         CoverageReport currentCoverage = runTestsAndGetCoverage();
         result.addCoverageReport(currentIteration.get(), currentCoverage);
+        
+        generationProgress.setCoverage(currentCoverage);
+        generationProgress.setPhase(GenerationPhase.COVERAGE_ANALYSIS, "Analyzing coverage");
+        notifyProgressUpdate();
         
         notifyCoverage(currentCoverage);
         
         while (!meetsTarget(currentCoverage) && currentIteration.get() < maxIterations) {
             int iteration = currentIteration.incrementAndGet();
+            generationProgress.setIteration(iteration);
+            generationProgress.setPhase(GenerationPhase.OPTIMIZATION, 
+                "Optimization iteration " + iteration,
+                String.format("Current coverage: %.1f%%", currentCoverage.overallLineCoverage() * 100));
+            notifyProgressUpdate();
+            
             notifyProgress("Iteration " + iteration + ": Current coverage " + 
                 String.format("%.1f%%", currentCoverage.overallLineCoverage() * 100));
             
@@ -162,15 +273,32 @@ public class IterativeOptimizer implements TestOptimizer {
                 break;
             }
             
-            String additionalTests = testGenerator.generateAdditionalTests(classInfo, uncoveredInfo);
+            generationProgress.setPhase(GenerationPhase.LLM_CALL, "Generating additional tests");
+            notifyProgressUpdate();
             
-            if (additionalTests != null && !additionalTests.isEmpty()) {
-                appendTestsToFile(testFile, additionalTests);
+            Set<String> existingMethodNames = getExistingTestMethodNames(testFile);
+            String moreTests = testGenerator.generateAdditionalTestsAvoidingDuplicates(
+                classInfo, uncoveredInfo, existingMethodNames);
+            
+            tokenUsage = testGenerator.getTotalTokenUsage();
+            generationProgress.addTokenUsage(tokenUsage);
+            generationProgress.incrementLlmCalls();
+            
+            if (moreTests != null && !moreTests.isEmpty()) {
+                appendTestsToFile(testFile, moreTests);
                 notifyProgress("Added additional tests for uncovered code");
             }
             
+            generationProgress.setPhase(GenerationPhase.RUNNING_TESTS, "Running tests");
+            notifyProgressUpdate();
+            
             currentCoverage = runTestsAndGetCoverage();
             result.addCoverageReport(currentIteration.get(), currentCoverage);
+            
+            generationProgress.setCoverage(currentCoverage);
+            generationProgress.setPhase(GenerationPhase.COVERAGE_ANALYSIS, "Analyzing coverage");
+            notifyProgressUpdate();
+            
             notifyCoverage(currentCoverage);
         }
         
@@ -179,12 +307,145 @@ public class IterativeOptimizer implements TestOptimizer {
         result.setIterations(currentIteration.get());
         
         if (result.isSuccess()) {
+            generationProgress.setPhase(GenerationPhase.COMPLETED, "Target coverage achieved");
             notifyProgress("Target coverage achieved: " + 
                 String.format("%.1f%%", currentCoverage.overallLineCoverage() * 100));
         } else {
+            generationProgress.setPhase(GenerationPhase.COMPLETED, "Max iterations reached");
             notifyProgress("Max iterations reached. Final coverage: " + 
                 String.format("%.1f%%", currentCoverage.overallLineCoverage() * 100));
         }
+        
+        notifyProgressUpdate();
+        
+        return result;
+    }
+
+    public OptimizationResult optimizeFull(File sourceFile) {
+        logger.info("Starting full optimization for: {}", sourceFile.getAbsolutePath());
+        
+        generationProgress = new GenerationProgress(
+            sourceFile.getAbsolutePath(),
+            sourceFile.getName()
+        );
+        generationProgress.setMaxIterations(maxIterations);
+        generationProgress.setTargetCoverage(targetCoverage);
+        
+        generationProgress.setPhase(GenerationPhase.PARSING, "Parsing source file");
+        notifyProgressUpdate();
+        
+        notifyProgress("Starting optimization for: " + sourceFile.getName());
+        
+        OptimizationResult result = new OptimizationResult();
+        result.setSourceFile(sourceFile);
+        
+        var parsedClass = codeParser.parseFile(sourceFile);
+        if (parsedClass.isEmpty()) {
+            logger.error("Failed to parse source file: {}", sourceFile.getAbsolutePath());
+            result.setSuccess(false);
+            result.setErrorMessage("Failed to parse source file");
+            generationProgress.setError(new GenerationException("Failed to parse source file"));
+            notifyProgressUpdate();
+            return result;
+        }
+        
+        ClassInfo classInfo = parsedClass.get();
+        result.setClassInfo(classInfo);
+        generationProgress.setPhase(GenerationPhase.TEST_GENERATION, "Generating initial tests");
+        notifyProgressUpdate();
+        
+        String testCode = testGenerator.generateTestClass(classInfo);
+        
+        TokenUsage tokenUsage = testGenerator.getTotalTokenUsage();
+        generationProgress.addTokenUsage(tokenUsage);
+        generationProgress.incrementLlmCalls();
+        
+        generationProgress.setPhase(GenerationPhase.WRITING_TEST, "Writing test file");
+        notifyProgressUpdate();
+        
+        File testFile = writeTestFile(classInfo, testCode);
+        result.setGeneratedTestFile(testFile);
+        
+        int methodCount = countTestMethods(testCode);
+        generationProgress.incrementTestMethods(methodCount);
+        generationProgress.incrementTestClasses();
+        
+        notifyProgress("Generated initial test file: " + testFile.getName());
+        
+        generationProgress.setPhase(GenerationPhase.RUNNING_TESTS, "Running tests");
+        notifyProgressUpdate();
+        
+        CoverageReport currentCoverage = runTestsAndGetCoverage();
+        result.addCoverageReport(currentIteration.get(), currentCoverage);
+        
+        generationProgress.setCoverage(currentCoverage);
+        generationProgress.setPhase(GenerationPhase.COVERAGE_ANALYSIS, "Analyzing coverage");
+        notifyProgressUpdate();
+        
+        notifyCoverage(currentCoverage);
+        
+        while (!meetsTarget(currentCoverage) && currentIteration.get() < maxIterations) {
+            int iteration = currentIteration.incrementAndGet();
+            generationProgress.setIteration(iteration);
+            generationProgress.setPhase(GenerationPhase.OPTIMIZATION, 
+                "Optimization iteration " + iteration,
+                String.format("Current coverage: %.1f%%", currentCoverage.overallLineCoverage() * 100));
+            notifyProgressUpdate();
+            
+            notifyProgress("Iteration " + iteration + ": Current coverage " + 
+                String.format("%.1f%%", currentCoverage.overallLineCoverage() * 100));
+            
+            List<CoverageInfo> uncoveredInfo = getUncoveredInfo(currentCoverage, classInfo);
+            
+            if (uncoveredInfo.isEmpty()) {
+                notifyProgress("No more uncovered code to improve");
+                break;
+            }
+            
+            generationProgress.setPhase(GenerationPhase.LLM_CALL, "Generating additional tests");
+            notifyProgressUpdate();
+            
+            String additionalTests = testGenerator.generateAdditionalTests(classInfo, uncoveredInfo);
+            
+            tokenUsage = testGenerator.getTotalTokenUsage();
+            generationProgress.addTokenUsage(tokenUsage);
+            generationProgress.incrementLlmCalls();
+            
+            if (additionalTests != null && !additionalTests.isEmpty()) {
+                appendTestsToFile(testFile, additionalTests);
+                int additionalMethodCount = countTestMethods(additionalTests);
+                generationProgress.incrementTestMethods(additionalMethodCount);
+                notifyProgress("Added additional tests for uncovered code");
+            }
+            
+            generationProgress.setPhase(GenerationPhase.RUNNING_TESTS, "Running tests");
+            notifyProgressUpdate();
+            
+            currentCoverage = runTestsAndGetCoverage();
+            result.addCoverageReport(currentIteration.get(), currentCoverage);
+            
+            generationProgress.setCoverage(currentCoverage);
+            generationProgress.setPhase(GenerationPhase.COVERAGE_ANALYSIS, "Analyzing coverage");
+            notifyProgressUpdate();
+            
+            notifyCoverage(currentCoverage);
+        }
+        
+        result.setFinalCoverage(currentCoverage);
+        result.setSuccess(meetsTarget(currentCoverage));
+        result.setIterations(currentIteration.get());
+        
+        if (result.isSuccess()) {
+            generationProgress.setPhase(GenerationPhase.COMPLETED, "Target coverage achieved");
+            notifyProgress("Target coverage achieved: " + 
+                String.format("%.1f%%", currentCoverage.overallLineCoverage() * 100));
+        } else {
+            generationProgress.setPhase(GenerationPhase.COMPLETED, "Max iterations reached");
+            notifyProgress("Max iterations reached. Final coverage: " + 
+                String.format("%.1f%%", currentCoverage.overallLineCoverage() * 100));
+        }
+        
+        notifyProgressUpdate();
         
         return result;
     }
@@ -195,8 +456,24 @@ public class IterativeOptimizer implements TestOptimizer {
         List<File> javaFiles = findJavaFiles(sourceDirectory);
         notifyProgress("Found " + javaFiles.size() + " Java files to process");
         
+        generationProgress = new GenerationProgress(
+            sourceDirectory.getAbsolutePath(),
+            sourceDirectory.getName()
+        );
+        generationProgress.setTotalFiles(javaFiles.size());
+        generationProgress.setMaxIterations(maxIterations);
+        generationProgress.setTargetCoverage(targetCoverage);
+        
+        int fileIndex = 0;
         for (File javaFile : javaFiles) {
+            fileIndex++;
             try {
+                generationProgress.setPhase(GenerationPhase.PARSING, 
+                    "Processing file " + fileIndex + "/" + javaFiles.size(),
+                    javaFile.getName());
+                generationProgress.setFilesProcessed(fileIndex);
+                notifyProgressUpdate();
+                
                 OptimizationResult result = optimize(javaFile);
                 results.add(result);
             } catch (Exception e) {
@@ -384,6 +661,12 @@ public class IterativeOptimizer implements TestOptimizer {
             coverageListener.accept(report);
         }
     }
+    
+    private void notifyProgressUpdate() {
+        if (progressUpdateListener != null && generationProgress != null) {
+            progressUpdateListener.accept(generationProgress);
+        }
+    }
 
     @Override
     public double getTargetCoverage() {
@@ -403,5 +686,94 @@ public class IterativeOptimizer implements TestOptimizer {
     @Override
     public String getBuildToolName() {
         return buildToolAdapter.name();
+    }
+
+    private File mergeTestFile(File existingTestFile, String additionalTests) {
+        try {
+            String existingContent = Files.readString(existingTestFile.toPath());
+            
+            String additionalMethods = extractMethodBodies(additionalTests);
+            
+            int lastBraceIndex = existingContent.lastIndexOf('}');
+            if (lastBraceIndex > 0) {
+                String newContent = existingContent.substring(0, lastBraceIndex) + 
+                    "\n" + additionalMethods + "\n}\n";
+                Files.writeString(existingTestFile.toPath(), newContent);
+            }
+            
+            return existingTestFile;
+        } catch (IOException e) {
+            logger.error("Error merging test file", e);
+            return existingTestFile;
+        }
+    }
+
+    private String extractMethodBodies(String testCode) {
+        if (testCode == null || testCode.trim().isEmpty()) {
+            return "";
+        }
+
+        if (testCode.contains("public class") || testCode.contains("class ")) {
+            java.util.regex.Pattern classPattern = java.util.regex.Pattern.compile("class\\s+\\w+\\s*\\{");
+            java.util.regex.Matcher classMatcher = classPattern.matcher(testCode);
+            
+            if (classMatcher.find()) {
+                int classStart = classMatcher.end();
+                int depth = 1;
+                int i = classStart;
+                while (i < testCode.length() && depth > 0) {
+                    char c = testCode.charAt(i);
+                    if (c == '{') depth++;
+                    else if (c == '}') depth--;
+                    i++;
+                }
+                return testCode.substring(classStart, i - 1).trim();
+            }
+        }
+
+        return testCode.trim();
+    }
+
+    private Set<String> getExistingTestMethodNames(File testFile) {
+        Set<String> methodNames = new HashSet<>();
+        
+        try {
+            String content = Files.readString(testFile.toPath());
+            java.util.regex.Pattern methodPattern = java.util.regex.Pattern.compile(
+                "(?:@Test|@ParameterizedTest)[^}]*?void\\s+(\\w+)\\s*\\(",
+                java.util.regex.Pattern.DOTALL
+            );
+            
+            java.util.regex.Matcher matcher = methodPattern.matcher(content);
+            while (matcher.find()) {
+                methodNames.add(matcher.group(1));
+            }
+        } catch (IOException e) {
+            logger.debug("Failed to read test file for method names: {}", e.getMessage());
+        }
+        
+        return methodNames;
+    }
+
+    private List<String> extractMethodNames(String testCode) {
+        List<String> methodNames = new ArrayList<>();
+        java.util.regex.Pattern methodPattern = java.util.regex.Pattern.compile(
+            "(?:@Test|@ParameterizedTest)[^}]*?void\\s+(\\w+)\\s*\\(",
+            java.util.regex.Pattern.DOTALL
+        );
+        
+        java.util.regex.Matcher matcher = methodPattern.matcher(testCode);
+        while (matcher.find()) {
+            methodNames.add(matcher.group(1));
+        }
+        
+        return methodNames;
+    }
+    
+    private int countTestMethods(String testCode) {
+        if (testCode == null || testCode.isEmpty()) {
+            return 0;
+        }
+        return extractMethodNames(testCode).size();
     }
 }

@@ -105,4 +105,24 @@ public interface TestOptimizer {
      * @return build tool name
      */
     String getBuildToolName();
+
+    /**
+     * Set incremental mode for test generation.
+     * When enabled, existing tests are preserved and new tests are added incrementally.
+     *
+     * @param incrementalMode true to enable incremental mode
+     * @return this optimizer for method chaining
+     */
+    default TestOptimizer setIncrementalMode(boolean incrementalMode) {
+        return this;
+    }
+
+    /**
+     * Check if incremental mode is enabled.
+     *
+     * @return true if incremental mode is enabled
+     */
+    default boolean isIncrementalMode() {
+        return true;
+    }
 }

@@ -209,4 +209,13 @@ public class OutputFormatter {
             System.out.println("❌ Coverage below target: " + String.format("%.0f%%", target * 100));
         }
     }
+
+    public void printIncrementalMode(boolean incremental) {
+        if (incremental) {
+            System.out.println("🔄 Incremental mode: Preserving existing tests");
+        } else {
+            System.out.println("🔄 Full regeneration mode: Will replace existing tests");
+        }
+        System.out.println();
+    }
 }

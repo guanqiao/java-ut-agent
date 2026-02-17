@@ -3,6 +3,8 @@ package com.utagent.generator.llm;
 import com.utagent.model.ClassInfo;
 import com.utagent.model.CoverageInfo;
 import com.utagent.model.MethodInfo;
+import com.utagent.model.ParsedTestFile;
+import com.utagent.model.ParsedTestMethod;
 import com.utagent.parser.FrameworkType;
 
 import java.util.List;
@@ -253,5 +255,118 @@ public class PromptBuilder {
             Output only valid Java code without explanations.
             Include all necessary imports at the top of the file.
             """;
+    }
+
+    public String buildIncrementalTestPrompt(ClassInfo classInfo, 
+                                             Set<FrameworkType> frameworks,
+                                             ParsedTestFile existingTests,
+                                             List<MethodInfo> untestedMethods,
+                                             List<CoverageInfo> uncoveredInfo) {
+        StringBuilder prompt = new StringBuilder();
+        
+        prompt.append("Generate ADDITIONAL JUnit 5 test methods to supplement existing tests.\n");
+        prompt.append("IMPORTANT: Do NOT regenerate tests that already exist.\n\n");
+        
+        prompt.append("## Class: ").append(classInfo.fullyQualifiedName()).append("\n\n");
+        
+        if (existingTests != null && existingTests.getTestMethodCount() > 0) {
+            prompt.append("## Existing Test Methods (DO NOT REGENERATE)\n");
+            for (ParsedTestMethod method : existingTests.testMethods()) {
+                if (method.isTest()) {
+                    prompt.append("- ").append(method.methodName());
+                    if (method.testedMethodName() != null) {
+                        prompt.append(" (tests: ").append(method.testedMethodName()).append(")");
+                    }
+                    prompt.append("\n");
+                }
+            }
+            prompt.append("\n");
+        }
+        
+        if (!untestedMethods.isEmpty()) {
+            prompt.append("## Methods Needing Tests\n");
+            for (MethodInfo method : untestedMethods) {
+                prompt.append("- ").append(method.getSignature());
+                prompt.append(" : ").append(method.returnType());
+                prompt.append("\n");
+            }
+            prompt.append("\n");
+        }
+        
+        if (uncoveredInfo != null && !uncoveredInfo.isEmpty()) {
+            prompt.append("## Uncovered Code Areas\n");
+            for (CoverageInfo info : uncoveredInfo) {
+                prompt.append("- Method: ").append(info.methodName());
+                prompt.append(", Line: ").append(info.lineNumber());
+                prompt.append(", Coverage: ").append(String.format("%.1f%%", info.getLineCoverageRate() * 100));
+                prompt.append("\n");
+            }
+            prompt.append("\n");
+        }
+        
+        prompt.append("## Requirements\n");
+        prompt.append("1. Generate ONLY new test methods that don't already exist\n");
+        prompt.append("2. Focus on the untested methods and uncovered code areas\n");
+        prompt.append("3. Use @Test and @DisplayName annotations\n");
+        prompt.append("4. Follow Given-When-Then structure\n");
+        prompt.append("5. Mock dependencies using Mockito\n");
+        prompt.append("6. Include appropriate assertions\n");
+        prompt.append("7. Use descriptive test names following pattern: should[Behavior]when[Condition]\n\n");
+        
+        prompt.append("## Framework Context\n");
+        for (FrameworkType framework : frameworks) {
+            prompt.append("- ").append(framework.getDisplayName()).append("\n");
+        }
+        prompt.append("\n");
+        
+        prompt.append("## Output Format\n");
+        prompt.append("Generate only the new test method code (no class structure needed).\n");
+        prompt.append("Include necessary imports if new dependencies are required.\n");
+        
+        return prompt.toString();
+    }
+
+    public String buildIncrementalCoveragePrompt(ClassInfo classInfo,
+                                                  List<CoverageInfo> uncoveredInfo,
+                                                  Set<String> existingTestMethodNames) {
+        StringBuilder prompt = new StringBuilder();
+        
+        prompt.append("Generate additional JUnit 5 test cases to improve code coverage.\n");
+        prompt.append("IMPORTANT: Avoid duplicating existing test methods.\n\n");
+        
+        prompt.append("## Class: ").append(classInfo.fullyQualifiedName()).append("\n\n");
+        
+        if (existingTestMethodNames != null && !existingTestMethodNames.isEmpty()) {
+            prompt.append("## Existing Test Methods (DO NOT DUPLICATE)\n");
+            for (String methodName : existingTestMethodNames) {
+                prompt.append("- ").append(methodName).append("\n");
+            }
+            prompt.append("\n");
+        }
+        
+        prompt.append("## Uncovered Code Areas\n");
+        for (CoverageInfo info : uncoveredInfo) {
+            prompt.append("- Method: ").append(info.methodName());
+            prompt.append(", Line: ").append(info.lineNumber());
+            prompt.append(", Branch Missed: ").append(info.branchMissed());
+            prompt.append(", Coverage: ").append(String.format("%.1f%%", info.getLineCoverageRate() * 100));
+            prompt.append("\n");
+        }
+        prompt.append("\n");
+        
+        prompt.append("## Requirements\n");
+        prompt.append("1. Focus ONLY on the uncovered lines and branches\n");
+        prompt.append("2. Generate test cases that exercise those specific paths\n");
+        prompt.append("3. Use different test data or scenarios from existing tests\n");
+        prompt.append("4. Consider edge cases and error conditions\n");
+        prompt.append("5. Use @Test and @DisplayName annotations\n");
+        prompt.append("6. Follow Given-When-Then structure\n");
+        prompt.append("7. Include necessary assertions\n\n");
+        
+        prompt.append("## Output Format\n");
+        prompt.append("Generate only the additional test methods, no class structure needed.\n");
+        prompt.append("Include necessary imports if new dependencies are required.\n");
+        
+        return prompt.toString();
     }
 }

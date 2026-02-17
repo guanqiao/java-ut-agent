@@ -34,7 +34,15 @@ public enum AnsiColor {
     UNDERLINE("\u001B[4m"),
     BLINK("\u001B[5m"),
     REVERSE("\u001B[7m"),
-    HIDDEN("\u001B[8m");
+    HIDDEN("\u001B[8m"),
+    
+    CURSOR_SAVE("\u001B[s"),
+    CURSOR_RESTORE("\u001B[u"),
+    CURSOR_HIDE("\u001B[?25l"),
+    CURSOR_SHOW("\u001B[?25h"),
+    CLEAR_LINE("\u001B[2K"),
+    CLEAR_SCREEN("\u001B[2J"),
+    CURSOR_HOME("\u001B[H");
     
     private final String code;
     

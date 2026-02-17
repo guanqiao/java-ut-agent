@@ -7,6 +7,9 @@ import com.utagent.llm.LLMConfig;
 import com.utagent.llm.LLMProviderType;
 import com.utagent.model.ClassInfo;
 import com.utagent.model.CoverageReport;
+import com.utagent.monitoring.GenerationProgress;
+import com.utagent.monitoring.LLMCallMonitor;
+import com.utagent.monitoring.RealTimeDashboard;
 import com.utagent.optimizer.IterativeOptimizer;
 import com.utagent.optimizer.OptimizationResult;
 import com.utagent.optimizer.TestOptimizer;
@@ -75,10 +78,20 @@ public class CLICommand implements Callable<Integer> {
 
     @Option(names = {"--config"}, description = "Path to configuration file")
     private File configFile;
+    
+    @Option(names = {"--dashboard"}, description = "Enable real-time dashboard display")
+    private boolean enableDashboard = false;
+
+    @Option(names = {"--incremental", "-I"}, description = "Enable incremental test generation (preserve existing tests, default: true)")
+    private Boolean incremental;
+
+    @Option(names = {"--force", "-F"}, description = "Force full regeneration of tests (ignore existing tests)")
+    private boolean force = false;
 
     private AgentConfig config;
     private ConfigManager configManager;
     private OutputFormatter outputFormatter;
+    private RealTimeDashboard dashboard;
 
     @Override
     public Integer call() throws Exception {
@@ -155,33 +168,88 @@ public class CLICommand implements Callable<Integer> {
             config.getCoverage().getMaxIterationsOrDefault()
         );
 
-        TestOptimizer optimizer = new IterativeOptimizer(configManager.getProjectRoot(), resolveApiKey())
+        boolean useIncremental = determineIncrementalMode();
+        outputFormatter.printIncrementalMode(useIncremental);
+
+        IterativeOptimizer optimizer = (IterativeOptimizer) new IterativeOptimizer(configManager.getProjectRoot(), resolveApiKey())
             .setTargetCoverage(config.getCoverage().getTargetOrDefault())
             .setMaxIterations(config.getCoverage().getMaxIterationsOrDefault())
             .setVerbose(config.getOutput().getVerboseOrDefault())
+            .setIncrementalMode(useIncremental)
             .setProgressListener(outputFormatter::printProgress)
             .setCoverageListener(outputFormatter::printCoverage);
+
+        if (enableDashboard) {
+            dashboard = RealTimeDashboard.builder().build();
+            optimizer.setProgressUpdateListener(progress -> {
+                dashboard.update();
+            });
+        }
 
         if (dryRun) {
             return generateTestsDryRun();
         }
 
         OptimizationResult result;
-        if (source.isFile()) {
-            result = optimizer.optimize(source);
-            outputFormatter.printResult(result);
-        } else {
-            List<OptimizationResult> results = optimizer.optimizeDirectory(source);
-            outputFormatter.printSummary(results);
+        try {
+            if (enableDashboard) {
+                GenerationProgress initialProgress = new GenerationProgress(
+                    source.getAbsolutePath(),
+                    source.getName()
+                );
+                initialProgress.setMaxIterations(config.getCoverage().getMaxIterationsOrDefault());
+                initialProgress.setTargetCoverage(config.getCoverage().getTargetOrDefault());
+                dashboard.start(initialProgress);
+            }
+            
+            if (source.isFile()) {
+                result = optimizer.optimize(source);
+                outputFormatter.printResult(result);
+            } else {
+                List<OptimizationResult> results = optimizer.optimizeDirectory(source);
+                outputFormatter.printSummary(results);
+            }
+        } finally {
+            if (enableDashboard && dashboard != null) {
+                dashboard.stop();
+            }
         }
 
+        printLLMSummary();
+
         return 0;
+    }
+    
+    private void printLLMSummary() {
+        LLMCallMonitor monitor = LLMCallMonitor.getInstance();
+        LLMCallMonitor.Statistics stats = monitor.getStatistics();
+        
+        if (stats.totalCalls() > 0) {
+            System.out.println();
+            System.out.println("=== LLM Usage Summary ===");
+            System.out.println("Total calls: " + stats.totalCalls());
+            System.out.println("Successful: " + stats.successfulCalls());
+            System.out.println("Failed: " + stats.failedCalls());
+            System.out.println("Total tokens: " + stats.getFormattedTokens());
+            System.out.println("Average latency: " + String.format("%.0fms", stats.averageLatencyMs()));
+            System.out.println("Estimated cost: $" + String.format("%.4f", stats.estimatedCost()));
+        }
     }
 
     private String resolveApiKey() {
         LLMConfig llmConfig = config.getLlm();
         LLMProviderType providerType = LLMProviderType.fromId(llmConfig.provider());
         return ApiKeyResolver.resolve(llmConfig.apiKey(), providerType);
+    }
+
+    private boolean determineIncrementalMode() {
+        if (force) {
+            return false;
+        }
+        if (incremental != null) {
+            return incremental;
+        }
+        return config.getGeneration().getIncrementalOrDefault();
     }
 
     private int generateTestsDryRun() {
