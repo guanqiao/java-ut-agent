@@ -1,0 +1,6 @@
+com.utagent.generator.strategy.SpringBootTestStrategy
+com.utagent.generator.strategy.SpringMvcTestStrategy
+com.utagent.generator.strategy.MyBatisTestStrategy
+com.utagent.generator.strategy.MyBatisPlusTestStrategy
+com.utagent.generator.strategy.DubboTestStrategy
+com.utagent.generator.strategy.ReactiveTestStrategy

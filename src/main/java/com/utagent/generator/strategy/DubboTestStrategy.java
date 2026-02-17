@@ -3,8 +3,16 @@ package com.utagent.generator.strategy;
 import com.utagent.model.ClassInfo;
 import com.utagent.model.FieldInfo;
 import com.utagent.model.MethodInfo;
+import com.utagent.parser.FrameworkType;
+
+import java.util.Set;
 
 public class DubboTestStrategy extends EnhancedTestStrategy {
+
+    @Override
+    public Set<FrameworkType> getSupportedFrameworks() {
+        return Set.of(FrameworkType.DUBBO);
+    }
 
     @Override
     protected String generatePackageDeclaration(ClassInfo classInfo) {

@@ -13,6 +13,7 @@ import com.utagent.optimizer.TestOptimizer;
 import com.utagent.parser.FrameworkDetector;
 import com.utagent.parser.FrameworkType;
 import com.utagent.parser.JavaCodeParser;
+import com.utagent.util.ApiKeyResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -179,17 +180,8 @@ public class CLICommand implements Callable<Integer> {
 
     private String resolveApiKey() {
         LLMConfig llmConfig = config.getLlm();
-        if (llmConfig.apiKey() != null) {
-            return llmConfig.apiKey();
-        }
-        
         LLMProviderType providerType = LLMProviderType.fromId(llmConfig.provider());
-        return switch (providerType) {
-            case OPENAI -> System.getenv("OPENAI_API_KEY");
-            case CLAUDE -> System.getenv("ANTHROPIC_API_KEY");
-            case DEEPSEEK -> System.getenv("DEEPSEEK_API_KEY");
-            case OLLAMA -> null;
-        };
+        return ApiKeyResolver.resolve(llmConfig.apiKey(), providerType);
     }
 
     private int generateTestsDryRun() {

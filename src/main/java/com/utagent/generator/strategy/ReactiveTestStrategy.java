@@ -4,10 +4,17 @@ import com.utagent.model.ClassInfo;
 import com.utagent.model.FieldInfo;
 import com.utagent.model.MethodInfo;
 import com.utagent.model.ParameterInfo;
+import com.utagent.parser.FrameworkType;
 
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class ReactiveTestStrategy extends EnhancedTestStrategy {
+
+    @Override
+    public Set<FrameworkType> getSupportedFrameworks() {
+        return Set.of(FrameworkType.REACTIVE);
+    }
 
     @Override
     protected String generatePackageDeclaration(ClassInfo classInfo) {

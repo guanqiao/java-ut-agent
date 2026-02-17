@@ -4,6 +4,7 @@ import com.utagent.llm.provider.ClaudeProvider;
 import com.utagent.llm.provider.DeepSeekProvider;
 import com.utagent.llm.provider.OllamaProvider;
 import com.utagent.llm.provider.OpenAIProvider;
+import com.utagent.util.ApiKeyResolver;
 import com.utagent.util.SensitiveDataMasker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,17 +66,8 @@ public final class LLMProviderFactory {
     }
     
     public static LLMProvider createFromEnv(LLMProviderType type) {
-        String apiKey = getApiKeyFromEnv(type);
+        String apiKey = ApiKeyResolver.resolveFromEnv(type);
         return create(type, apiKey);
-    }
-    
-    private static String getApiKeyFromEnv(LLMProviderType type) {
-        return switch (type) {
-            case OPENAI -> System.getenv("OPENAI_API_KEY");
-            case CLAUDE -> System.getenv("ANTHROPIC_API_KEY");
-            case DEEPSEEK -> System.getenv("DEEPSEEK_API_KEY");
-            case OLLAMA -> null;
-        };
     }
     
     public static Set<String> getAvailableProviders() {
@@ -85,7 +77,6 @@ public final class LLMProviderFactory {
     }
     
     public static boolean isProviderAvailable(LLMProviderType type) {
-        String apiKey = getApiKeyFromEnv(type);
-        return type == LLMProviderType.OLLAMA || (apiKey != null && !apiKey.isEmpty());
+        return ApiKeyResolver.hasApiKeyInEnv(type);
     }
 }

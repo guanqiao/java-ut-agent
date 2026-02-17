@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 public class IterativeOptimizer implements TestOptimizer {
@@ -37,7 +38,7 @@ public class IterativeOptimizer implements TestOptimizer {
 
     private double targetCoverage;
     private int maxIterations;
-    private int currentIteration;
+    private final AtomicInteger currentIteration = new AtomicInteger(0);
     private boolean verbose;
 
     private Consumer<String> progressListener;
@@ -59,7 +60,7 @@ public class IterativeOptimizer implements TestOptimizer {
         this.testOutputDir = new File(projectRoot, "target/generated-test-sources");
         this.targetCoverage = 0.80;
         this.maxIterations = 10;
-        this.currentIteration = 0;
+        this.currentIteration.set(0);
         this.verbose = true;
 
         logger.info("Detected build tool: {}", this.buildToolAdapter.name());
@@ -145,13 +146,13 @@ public class IterativeOptimizer implements TestOptimizer {
         notifyProgress("Generated initial test file: " + testFile.getName());
         
         CoverageReport currentCoverage = runTestsAndGetCoverage();
-        result.addCoverageReport(currentIteration, currentCoverage);
+        result.addCoverageReport(currentIteration.get(), currentCoverage);
         
         notifyCoverage(currentCoverage);
         
-        while (!meetsTarget(currentCoverage) && currentIteration < maxIterations) {
-            currentIteration++;
-            notifyProgress("Iteration " + currentIteration + ": Current coverage " + 
+        while (!meetsTarget(currentCoverage) && currentIteration.get() < maxIterations) {
+            int iteration = currentIteration.incrementAndGet();
+            notifyProgress("Iteration " + iteration + ": Current coverage " + 
                 String.format("%.1f%%", currentCoverage.overallLineCoverage() * 100));
             
             List<CoverageInfo> uncoveredInfo = getUncoveredInfo(currentCoverage, classInfo);
@@ -169,13 +170,13 @@ public class IterativeOptimizer implements TestOptimizer {
             }
             
             currentCoverage = runTestsAndGetCoverage();
-            result.addCoverageReport(currentIteration, currentCoverage);
+            result.addCoverageReport(currentIteration.get(), currentCoverage);
             notifyCoverage(currentCoverage);
         }
         
         result.setFinalCoverage(currentCoverage);
         result.setSuccess(meetsTarget(currentCoverage));
-        result.setIterations(currentIteration);
+        result.setIterations(currentIteration.get());
         
         if (result.isSuccess()) {
             notifyProgress("Target coverage achieved: " + 
@@ -391,7 +392,7 @@ public class IterativeOptimizer implements TestOptimizer {
 
     @Override
     public int getCurrentIteration() {
-        return currentIteration;
+        return currentIteration.get();
     }
 
     @Override

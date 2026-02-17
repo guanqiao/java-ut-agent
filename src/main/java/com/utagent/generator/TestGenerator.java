@@ -15,6 +15,7 @@ import com.utagent.model.ClassInfo;
 import com.utagent.model.CoverageInfo;
 import com.utagent.parser.FrameworkDetector;
 import com.utagent.parser.FrameworkType;
+import com.utagent.util.ApiKeyResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -93,22 +94,16 @@ public class TestGenerator {
     }
 
     private LLMProvider createProvider(String apiKey, String provider, String baseUrl, String model) {
-        if (apiKey == null && !"ollama".equalsIgnoreCase(provider)) {
-            String envKey = switch (provider != null ? provider.toLowerCase() : "openai") {
-                case "claude" -> System.getenv("ANTHROPIC_API_KEY");
-                case "deepseek" -> System.getenv("DEEPSEEK_API_KEY");
-                default -> System.getenv("OPENAI_API_KEY");
-            };
-            apiKey = envKey;
-        }
+        LLMProviderType providerType = LLMProviderType.fromId(provider);
+        
+        String resolvedApiKey = ApiKeyResolver.resolve(apiKey, providerType);
 
-        if (apiKey == null && !"ollama".equalsIgnoreCase(provider)) {
+        if (resolvedApiKey == null && ApiKeyResolver.isApiKeyRequired(providerType)) {
             logger.info("No API key provided, using template-based generation");
             return null;
         }
 
-        LLMProviderType providerType = LLMProviderType.fromId(provider);
-        return LLMProviderFactory.create(providerType, apiKey, baseUrl, model);
+        return LLMProviderFactory.create(providerType, resolvedApiKey, baseUrl, model);
     }
 
     public String generateTestClass(ClassInfo classInfo) {
